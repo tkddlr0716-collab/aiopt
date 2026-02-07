@@ -1,5 +1,9 @@
 # npx aiopt scan → your LLM cost & savings in 5 seconds
 
+[![npm](https://img.shields.io/npm/v/aiopt)](https://www.npmjs.com/package/aiopt)
+[![ci](https://github.com/tkddlr0716-collab/aiopt/actions/workflows/ci.yml/badge.svg)](https://github.com/tkddlr0716-collab/aiopt/actions/workflows/ci.yml)
+[![license](https://img.shields.io/npm/l/aiopt)](./LICENSE)
+
 ```bash
 npx aiopt init
 npx aiopt scan
