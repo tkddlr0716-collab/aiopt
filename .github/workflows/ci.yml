@@ -17,9 +17,22 @@ jobs:
       - run: npm run build
 
       # v0.2 scenario: install -> doctor -> fake usage -> scan
-      - run: node dist/cli.js install --force
-      - run: node dist/cli.js doctor
+      - run: rm -rf .ci-smoke && mkdir -p .ci-smoke
+      - run: node ../dist/cli.js install --force
+        working-directory: .ci-smoke
+      - run: node ../dist/cli.js doctor
+        working-directory: .ci-smoke
       - run: node -e "const fs=require('fs');fs.mkdirSync('aiopt-output',{recursive:true});for(let i=0;i<10;i++)fs.appendFileSync('aiopt-output/usage.jsonl',JSON.stringify({ts:new Date().toISOString(),request_id:'r'+i,trace_id:'t'+i,attempt:1,status:'ok',error_code:null,provider:'openai',model:'gpt-5-mini',endpoint:'responses.create',prompt_tokens:1000,completion_tokens:200,total_tokens:1200,cost_usd:0.01,latency_ms:123,meta:{feature_tag:(i%2?'summarize':'coding')}})+'\\n');"
-      - run: node dist/cli.js scan
+        working-directory: .ci-smoke
+      - run: node ../dist/cli.js scan
+        working-directory: .ci-smoke
       - run: test -f ./aiopt-output/report.md
+        working-directory: .ci-smoke
+      - run: test -f ./aiopt-output/report.json
+        working-directory: .ci-smoke
+      - run: grep -q "Top Fix 3" ./aiopt-output/report.md
+        working-directory: .ci-smoke
       - run: test -f ./aiopt-output/patches/README.md
+        working-directory: .ci-smoke
+      - run: test -f ./aiopt-output/patches/policies.updated.retry.json
+        working-directory: .ci-smoke
