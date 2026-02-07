@@ -2,79 +2,49 @@
 
 AIOpt는 **scan툴이 아니라 설치형 비용 가드레일이다.**
 
-- 서버/대시보드/계정/업로드/결제/프록시 없음
-- 로컬 파일 기반: `aiopt/policies/*.json` + `aiopt-output/usage.jsonl`
-- 실행 중에 wrapper가 사용량을 기록하고, `scan`이 그 로그를 읽어 비용/세이빙을 계산한다
-
-## 5-minute demo (fresh dir)
-
+## Quick start
 ```bash
-mkdir -p /tmp/aiopt-demo && cd /tmp/aiopt-demo
-
-# 1) install guardrails files
 npx aiopt install --force
-
-# 2) verify install + show last 5 usage lines
 npx aiopt doctor
-
-# 3) your app runs (wrapper writes JSONL)
-#    (see below for a minimal node script)
-
-# 4) scan (defaults to ./aiopt-output/usage.jsonl)
+# (your app runs, wrapper logs usage)
 npx aiopt scan
 ```
 
-## Wrapper (Node.js) — minimal example
+- 서버/대시보드/계정/업로드/결제/프록시 없음
+- 로컬 파일 기반(정책 + usage.jsonl)
+- LLM 호출 금지(수학/룰 기반)
 
-Create `demo.js` in your project root:
+## Wrapper usage (Node.js)
+
+AIOpt 설치 후, 앱 코드에서 wrapper를 불러서 사용량 JSONL을 자동 기록할 수 있습니다.
+
+
+a) 최소 형태(토큰을 직접 넘김)
 
 ```js
-const path = require('path');
-const cwd = process.cwd();
-const { guardedCall } = require(path.join(cwd, 'aiopt', 'aiopt-wrapper.js'));
+const { guardedCall } = require('./aiopt/aiopt-wrapper.js');
 
-async function main(){
-  // Simulated provider call (replace with real SDK call)
-  await guardedCall(cwd, {
-    provider: 'openai',
-    model: 'gpt-5-mini',
-    endpoint: 'responses.create',
-    feature_tag: 'summarize',
-    prompt_tokens: 100,
-    trace_id: 'demo-1'
-  }, async (req) => {
-    // You can return either normalized fields...
-    // return { status: 'ok', completion_tokens: 20 };
-
-    // ...or an OpenAI-style usage object (AIOpt will extract tokens)
-    return {
-      status: 'ok',
-      response: { usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 } }
-    };
-  });
-
-  console.log('wrote usage line -> aiopt-output/usage.jsonl');
-}
-
-main().catch((e)=>{ console.error(e); process.exit(1); });
+await guardedCall(process.cwd(), {
+  provider: 'openai',
+  model: 'gpt-5-mini',
+  endpoint: 'responses.create',
+  feature_tag: 'summarize',
+  prompt_tokens: 1200,
+  trace_id: 'my-trace'
+}, async (req) => {
+  // req: { provider, model, endpoint, max_output_tokens, prompt_tokens, idempotency_key }
+  // 여기서 실제 SDK 호출 후 결과를 반환
+  return { status: 'ok', completion_tokens: 200 };
+});
 ```
 
-Run:
+b) OpenAI-style 응답(usage 자동 추출)
 
-```bash
-node demo.js
-tail -n 2 aiopt-output/usage.jsonl
+```js
+return {
+  status: 'ok',
+  response: {
+    usage: { prompt_tokens: 1200, completion_tokens: 200, total_tokens: 1400 }
+  }
+};
 ```
-
-## What gets installed
-
-- `aiopt/aiopt.config.json`
-- `aiopt/policies/` (routing/retry/output/context)
-- `aiopt/aiopt-wrapper.js` (guardrails + JSONL logging)
-- `aiopt-output/usage.jsonl`
-
-## CLI
-
-- `npx aiopt install [--force]`
-- `npx aiopt doctor`
-- `npx aiopt scan [--input <path>]` (MVP: local-only)

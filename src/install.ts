@@ -32,7 +32,7 @@ export function runInstall(cwd: string, opts: InstallOptions) {
   // 1) aiopt/README.md
   const readme = `# AIOpt
 
-AIOpt는 **scan 툴이 아니라 설치형 비용 가드레일**입니다.
+AIOpt는 **scan툴이 아니라 설치형 비용 가드레일이다.**
 
 ## Quick start
 \`\`\`bash

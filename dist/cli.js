@@ -55,7 +55,7 @@ function runInstall(cwd, opts) {
   const created = [];
   const readme = `# AIOpt
 
-AIOpt\uB294 **scan \uD234\uC774 \uC544\uB2C8\uB77C \uC124\uCE58\uD615 \uBE44\uC6A9 \uAC00\uB4DC\uB808\uC77C**\uC785\uB2C8\uB2E4.
+AIOpt\uB294 **scan\uD234\uC774 \uC544\uB2C8\uB77C \uC124\uCE58\uD615 \uBE44\uC6A9 \uAC00\uB4DC\uB808\uC77C\uC774\uB2E4.**
 
 ## Quick start
 \`\`\`bash
