@@ -252,12 +252,47 @@ export function runGuard(rt: RateTable, input: GuardInput): GuardResult {
 
   const causes = topCauses();
 
+  function sumTokens(events: UsageEvent[]) {
+    let input = 0;
+    let output = 0;
+    for (const e of events) {
+      input += Number(e.input_tokens || 0);
+      output += Number(e.output_tokens || 0);
+    }
+    return { input, output, total: input + output };
+  }
+
+  function topDeltas(kind: 'model' | 'feature') {
+    const b = kind === 'model' ? (base.analysis.by_model_top || []) : (base.analysis.by_feature_top || []);
+    const c = kind === 'model' ? (cand.analysis.by_model_top || []) : (cand.analysis.by_feature_top || []);
+    const bm = new Map<string, { cost: number; events: number }>();
+    const cm = new Map<string, { cost: number; events: number }>();
+    for (const x of b) bm.set(String(x.key), { cost: Number(x.cost || 0), events: Number(x.events || 0) });
+    for (const x of c) cm.set(String(x.key), { cost: Number(x.cost || 0), events: Number(x.events || 0) });
+    const keys = new Set<string>([...bm.keys(), ...cm.keys()]);
+    const deltas = [...keys].map(k => {
+      const bb = bm.get(k) || { cost: 0, events: 0 };
+      const cc = cm.get(k) || { cost: 0, events: 0 };
+      return { key: k, deltaCost: cc.cost - bb.cost, deltaEvents: cc.events - bb.events };
+    });
+    return deltas
+      .sort((a, b2) => Math.abs(b2.deltaCost) - Math.abs(a.deltaCost))
+      .slice(0, 3)
+      .filter(x => Math.abs(x.deltaCost) > 1e-9);
+  }
+
+  const tokB = sumTokens(baselineEvents);
+  const tokC = sumTokens(candidateEvents);
+
   const msg = [
     headline,
     `Summary: baseline=$${round2(baseCost)} → candidate=$${round2(candCost)} (Δ=$${round2(delta)})`,
     `Monthly est: baseline=$${round2(baselineMonthly)} → candidate=$${round2(candidateMonthly)}${budget ? ` (budget=$${round2(budget)})` : ''}`,
+    input.candidateEvents ? `Tokens: input ${tokB.input}→${tokC.input} (Δ ${tokC.input - tokB.input}), output ${tokB.output}→${tokC.output} (Δ ${tokC.output - tokB.output})` : null,
     callMult !== 1 ? `Call volume multiplier: x${callMult}` : null,
     causes.length ? `Top causes: ${causes.join(' | ')}` : null,
+    input.candidateEvents ? (topDeltas('model').length ? `Top model deltas: ${topDeltas('model').map(x => `${x.key} (${round2(x.deltaCost)})`).join(' | ')}` : null) : null,
+    input.candidateEvents ? (topDeltas('feature').length ? `Top feature deltas: ${topDeltas('feature').map(x => `${x.key} (${round2(x.deltaCost)})`).join(' | ')}` : null) : null,
     `Impact (monthly est): +$${monthlyRounded}`,
     `Accident risk: ${accidentRiskFromMonthly(monthly)}`,
     `Confidence: ${conf.level} (${reasons})`,

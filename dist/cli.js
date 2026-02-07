@@ -481,7 +481,7 @@ var require_package = __commonJS({
   "package.json"(exports2, module2) {
     module2.exports = {
       name: "aiopt",
-      version: "0.2.6",
+      version: "0.2.7",
       description: "Pre-deploy LLM cost accident guardrail (serverless local CLI)",
       bin: {
         aiopt: "dist/cli.js"
@@ -1163,12 +1163,41 @@ function runGuard(rt, input) {
     return out.slice(0, 3);
   }
   const causes = topCauses();
+  function sumTokens(events) {
+    let input2 = 0;
+    let output = 0;
+    for (const e of events) {
+      input2 += Number(e.input_tokens || 0);
+      output += Number(e.output_tokens || 0);
+    }
+    return { input: input2, output, total: input2 + output };
+  }
+  function topDeltas(kind) {
+    const b = kind === "model" ? base.analysis.by_model_top || [] : base.analysis.by_feature_top || [];
+    const c = kind === "model" ? cand.analysis.by_model_top || [] : cand.analysis.by_feature_top || [];
+    const bm = /* @__PURE__ */ new Map();
+    const cm = /* @__PURE__ */ new Map();
+    for (const x of b) bm.set(String(x.key), { cost: Number(x.cost || 0), events: Number(x.events || 0) });
+    for (const x of c) cm.set(String(x.key), { cost: Number(x.cost || 0), events: Number(x.events || 0) });
+    const keys = /* @__PURE__ */ new Set([...bm.keys(), ...cm.keys()]);
+    const deltas = [...keys].map((k) => {
+      const bb = bm.get(k) || { cost: 0, events: 0 };
+      const cc = cm.get(k) || { cost: 0, events: 0 };
+      return { key: k, deltaCost: cc.cost - bb.cost, deltaEvents: cc.events - bb.events };
+    });
+    return deltas.sort((a, b2) => Math.abs(b2.deltaCost) - Math.abs(a.deltaCost)).slice(0, 3).filter((x) => Math.abs(x.deltaCost) > 1e-9);
+  }
+  const tokB = sumTokens(baselineEvents);
+  const tokC = sumTokens(candidateEvents);
   const msg = [
     headline,
     `Summary: baseline=$${round23(baseCost)} \u2192 candidate=$${round23(candCost)} (\u0394=$${round23(delta)})`,
     `Monthly est: baseline=$${round23(baselineMonthly)} \u2192 candidate=$${round23(candidateMonthly)}${budget ? ` (budget=$${round23(budget)})` : ""}`,
+    input.candidateEvents ? `Tokens: input ${tokB.input}\u2192${tokC.input} (\u0394 ${tokC.input - tokB.input}), output ${tokB.output}\u2192${tokC.output} (\u0394 ${tokC.output - tokB.output})` : null,
     callMult !== 1 ? `Call volume multiplier: x${callMult}` : null,
     causes.length ? `Top causes: ${causes.join(" | ")}` : null,
+    input.candidateEvents ? topDeltas("model").length ? `Top model deltas: ${topDeltas("model").map((x) => `${x.key} (${round23(x.deltaCost)})`).join(" | ")}` : null : null,
+    input.candidateEvents ? topDeltas("feature").length ? `Top feature deltas: ${topDeltas("feature").map((x) => `${x.key} (${round23(x.deltaCost)})`).join(" | ")}` : null : null,
     `Impact (monthly est): +$${monthlyRounded}`,
     `Accident risk: ${accidentRiskFromMonthly(monthly)}`,
     `Confidence: ${conf.level} (${reasons})`,

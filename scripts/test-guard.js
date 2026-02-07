@@ -77,6 +77,9 @@ function mustContain(out, s) {
   assert(r.code === 2 || r.code === 3 || r.code === 0, 'exit code must be 0/2/3');
   mustContain(r.out, 'baseline=$');
   mustContain(r.out, 'candidate=$');
+  mustContain(r.out, 'Tokens:');
+  mustContain(r.out, 'Top model deltas:');
+  mustContain(r.out, 'Top feature deltas:');
   mustContain(r.out, 'Confidence:');
 }
 
