@@ -68,6 +68,41 @@ npx aiopt scan
 - \uC11C\uBC84/\uB300\uC2DC\uBCF4\uB4DC/\uACC4\uC815/\uC5C5\uB85C\uB4DC/\uACB0\uC81C/\uD504\uB85D\uC2DC \uC5C6\uC74C
 - \uB85C\uCEEC \uD30C\uC77C \uAE30\uBC18(\uC815\uCC45 + usage.jsonl)
 - LLM \uD638\uCD9C \uAE08\uC9C0(\uC218\uD559/\uB8F0 \uAE30\uBC18)
+
+## Wrapper usage (Node.js)
+
+AIOpt \uC124\uCE58 \uD6C4, \uC571 \uCF54\uB4DC\uC5D0\uC11C wrapper\uB97C \uBD88\uB7EC\uC11C \uC0AC\uC6A9\uB7C9 JSONL\uC744 \uC790\uB3D9 \uAE30\uB85D\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.
+
+
+a) \uCD5C\uC18C \uD615\uD0DC(\uD1A0\uD070\uC744 \uC9C1\uC811 \uB118\uAE40)
+
+\`\`\`js
+const { guardedCall } = require('./aiopt/aiopt-wrapper.js');
+
+await guardedCall(process.cwd(), {
+  provider: 'openai',
+  model: 'gpt-5-mini',
+  endpoint: 'responses.create',
+  feature_tag: 'summarize',
+  prompt_tokens: 1200,
+  trace_id: 'my-trace'
+}, async (req) => {
+  // req: { provider, model, endpoint, max_output_tokens, prompt_tokens, idempotency_key }
+  // \uC5EC\uAE30\uC11C \uC2E4\uC81C SDK \uD638\uCD9C \uD6C4 \uACB0\uACFC\uB97C \uBC18\uD658
+  return { status: 'ok', completion_tokens: 200 };
+});
+\`\`\`
+
+b) OpenAI-style \uC751\uB2F5(usage \uC790\uB3D9 \uCD94\uCD9C)
+
+\`\`\`js
+return {
+  status: 'ok',
+  response: {
+    usage: { prompt_tokens: 1200, completion_tokens: 200, total_tokens: 1400 }
+  }
+};
+\`\`\`
 `;
   const r1 = writeFile(import_path3.default.join(aioptDir, "README.md"), readme, force);
   created.push({ path: "aiopt/README.md", status: r1.wrote ? "created" : "skipped" });
@@ -139,7 +174,13 @@ function loadPolicies(cwd,cfg){ const dir=path.isAbsolute(cfg.policies_dir)?cfg.
     output: readJson(path.join(dir,'output.json'))
   };
 }
-function loadRates(cwd,cfg){ const rp=path.isAbsolute(cfg.rate_table.path)?cfg.rate_table.path:path.join(cwd,cfg.rate_table.path); return readJson(rp); }
+function loadRates(cwd,cfg){
+  const rp=path.isAbsolute(cfg.rate_table.path)?cfg.rate_table.path:path.join(cwd,cfg.rate_table.path);
+  try{ return readJson(rp); }catch(e){
+    // Fresh projects may not have a rates/ table yet. Fall back to a safe default.
+    return { providers: {} };
+  }
+}
 
 function costUsd(rt, provider, model, promptTokens, completionTokens){
   const p=rt.providers && rt.providers[provider];
@@ -167,9 +208,49 @@ function outputCap(outputPolicy, featureTag, requested){
 
 const IDEMPOTENCY=new Map();
 
+function normalizeResult(out, input){
+  // Accept either normalized return or provider raw.
+  const o = (out && out.response) ? out.response : out;
+  const status = (out && out.status) || o.status || (o.error ? 'error' : 'ok');
+  const usage = o.usage || (o.data && o.data.usage) || null;
+
+  const prompt_tokens = Number(
+    (out && out.prompt_tokens) ??
+    (o && o.prompt_tokens) ??
+    (usage && usage.prompt_tokens) ??
+    input.prompt_tokens ??
+    0
+  );
+  const completion_tokens = Number(
+    (out && out.completion_tokens) ??
+    (o && o.completion_tokens) ??
+    (usage && usage.completion_tokens) ??
+    0
+  );
+  const total_tokens = Number(
+    (out && out.total_tokens) ??
+    (o && o.total_tokens) ??
+    (usage && usage.total_tokens) ??
+    (prompt_tokens + completion_tokens)
+  );
+
+  const error_code = status === 'ok' ? null : String((out && out.error_code) || (o && o.error_code) || (o && o.error && (o.error.code || o.error.type)) || status);
+  const cost_usd = (out && typeof out.cost_usd === 'number') ? out.cost_usd : null;
+
+  return { status, prompt_tokens, completion_tokens, total_tokens, error_code, cost_usd };
+}
+
 /**
  * guardedCall(cwd, input, fn)
- * fn(req) must return: { status: 'ok'|'error'|'timeout', completion_tokens: number, error_code?: string }
+ *
+ * fn(req) can return either:
+ *  1) Normalized shape:
+ *     { status: 'ok'|'error'|'timeout', prompt_tokens?, completion_tokens?, total_tokens?, cost_usd?, error_code? }
+ *  2) Provider raw response (OpenAI-style), e.g.:
+ *     { status:'ok', response:{ usage:{prompt_tokens, completion_tokens, total_tokens} } }
+ *     { usage:{prompt_tokens, completion_tokens, total_tokens} }
+ *
+ * If token fields are missing, AIOpt will fall back to input.prompt_tokens and/or 0.
  */
 async function guardedCall(cwd, input, fn){
   const cfg=loadConfig(cwd);
@@ -199,13 +280,12 @@ async function guardedCall(cwd, input, fn){
     try{
       const out=await fn({ provider: input.provider, model: routed.model, endpoint: input.endpoint, max_output_tokens: maxOut, prompt_tokens: input.prompt_tokens, idempotency_key: idem });
       const latency_ms=Date.now()-t0;
-      const completion_tokens=Number(out.completion_tokens||0);
-      const total_tokens=Number(input.prompt_tokens||0)+completion_tokens;
-      const cost_usd=costUsd(rt, input.provider, routed.model, Number(input.prompt_tokens||0), completion_tokens);
-      appendJsonl(usagePath, { ts:new Date().toISOString(), request_id, trace_id, attempt, status: out.status, error_code: out.status==='ok'?null:String(out.error_code||out.status), provider: input.provider, model: routed.model, endpoint: input.endpoint, prompt_tokens:Number(input.prompt_tokens||0), completion_tokens, total_tokens, cost_usd, latency_ms, meta:{ routed_from: routed.routed_from, policy_hits } });
-      last=out;
-      if(out.status==='ok'){ IDEMPOTENCY.set(idem,out); return out; }
-      if(retryOn.has(out.status) && attempt<maxAttempts){ await sleep(Number(backoffs[Math.min(attempt-1, backoffs.length-1)]||200)); continue; }
+      const norm=normalizeResult(out, input);
+      const cost_usd=(typeof norm.cost_usd==='number') ? norm.cost_usd : costUsd(rt, input.provider, routed.model, norm.prompt_tokens, norm.completion_tokens);
+      appendJsonl(usagePath, { ts:new Date().toISOString(), request_id, trace_id, attempt, status: norm.status, error_code: norm.error_code, provider: input.provider, model: routed.model, endpoint: input.endpoint, prompt_tokens: norm.prompt_tokens, completion_tokens: norm.completion_tokens, total_tokens: norm.total_tokens, cost_usd, latency_ms, meta:{ routed_from: routed.routed_from, policy_hits } });
+      last={ status: norm.status, completion_tokens: norm.completion_tokens, error_code: norm.error_code };
+      if(norm.status==='ok'){ IDEMPOTENCY.set(idem,out); return out; }
+      if(retryOn.has(norm.status) && attempt<maxAttempts){ await sleep(Number(backoffs[Math.min(attempt-1, backoffs.length-1)]||200)); continue; }
       IDEMPOTENCY.set(idem,out); return out;
     }catch(e){
       const latency_ms=Date.now()-t0;
@@ -549,7 +629,25 @@ function round2(n) {
 function writeOutputs(outDir, analysis, savings, policy) {
   import_fs2.default.mkdirSync(outDir, { recursive: true });
   import_fs2.default.writeFileSync(import_path2.default.join(outDir, "analysis.json"), JSON.stringify(analysis, null, 2));
-  const report = [
+  const reportJson = {
+    version: 1,
+    generated_at: (/* @__PURE__ */ new Date()).toISOString(),
+    summary: {
+      total_cost_usd: analysis.total_cost,
+      estimated_savings_usd: savings.estimated_savings_total,
+      routing_savings_usd: savings.routing_savings,
+      context_savings_usd: savings.context_savings,
+      retry_waste_usd: savings.retry_waste
+    },
+    top: {
+      by_model: analysis.by_model_top,
+      by_feature: analysis.by_feature_top
+    },
+    unknown_models: analysis.unknown_models,
+    notes: savings.notes
+  };
+  import_fs2.default.writeFileSync(import_path2.default.join(outDir, "report.json"), JSON.stringify(reportJson, null, 2));
+  const reportTxt = [
     `\uCD1D\uBE44\uC6A9: $${analysis.total_cost}`,
     `\uC808\uAC10 \uAC00\uB2A5 \uAE08\uC561(Estimated): $${savings.estimated_savings_total}`,
     `\uC808\uAC10 \uADFC\uAC70 3\uC904:`,
@@ -558,7 +656,7 @@ function writeOutputs(outDir, analysis, savings, policy) {
     savings.notes[2],
     ""
   ].join("\n");
-  import_fs2.default.writeFileSync(import_path2.default.join(outDir, "report.txt"), report);
+  import_fs2.default.writeFileSync(import_path2.default.join(outDir, "report.txt"), reportTxt);
   import_fs2.default.writeFileSync(import_path2.default.join(outDir, "cost-policy.json"), JSON.stringify(policy, null, 2));
 }
 

@@ -45,6 +45,41 @@ npx aiopt scan
 - 서버/대시보드/계정/업로드/결제/프록시 없음
 - 로컬 파일 기반(정책 + usage.jsonl)
 - LLM 호출 금지(수학/룰 기반)
+
+## Wrapper usage (Node.js)
+
+AIOpt 설치 후, 앱 코드에서 wrapper를 불러서 사용량 JSONL을 자동 기록할 수 있습니다.
+
+
+a) 최소 형태(토큰을 직접 넘김)
+
+\`\`\`js
+const { guardedCall } = require('./aiopt/aiopt-wrapper.js');
+
+await guardedCall(process.cwd(), {
+  provider: 'openai',
+  model: 'gpt-5-mini',
+  endpoint: 'responses.create',
+  feature_tag: 'summarize',
+  prompt_tokens: 1200,
+  trace_id: 'my-trace'
+}, async (req) => {
+  // req: { provider, model, endpoint, max_output_tokens, prompt_tokens, idempotency_key }
+  // 여기서 실제 SDK 호출 후 결과를 반환
+  return { status: 'ok', completion_tokens: 200 };
+});
+\`\`\`
+
+b) OpenAI-style 응답(usage 자동 추출)
+
+\`\`\`js
+return {
+  status: 'ok',
+  response: {
+    usage: { prompt_tokens: 1200, completion_tokens: 200, total_tokens: 1400 }
+  }
+};
+\`\`\`
 `;
 
   const r1 = writeFile(path.join(aioptDir, 'README.md'), readme, force);
@@ -126,7 +161,13 @@ function loadPolicies(cwd,cfg){ const dir=path.isAbsolute(cfg.policies_dir)?cfg.
     output: readJson(path.join(dir,'output.json'))
   };
 }
-function loadRates(cwd,cfg){ const rp=path.isAbsolute(cfg.rate_table.path)?cfg.rate_table.path:path.join(cwd,cfg.rate_table.path); return readJson(rp); }
+function loadRates(cwd,cfg){
+  const rp=path.isAbsolute(cfg.rate_table.path)?cfg.rate_table.path:path.join(cwd,cfg.rate_table.path);
+  try{ return readJson(rp); }catch(e){
+    // Fresh projects may not have a rates/ table yet. Fall back to a safe default.
+    return { providers: {} };
+  }
+}
 
 function costUsd(rt, provider, model, promptTokens, completionTokens){
   const p=rt.providers && rt.providers[provider];
@@ -154,9 +195,49 @@ function outputCap(outputPolicy, featureTag, requested){
 
 const IDEMPOTENCY=new Map();
 
+function normalizeResult(out, input){
+  // Accept either normalized return or provider raw.
+  const o = (out && out.response) ? out.response : out;
+  const status = (out && out.status) || o.status || (o.error ? 'error' : 'ok');
+  const usage = o.usage || (o.data && o.data.usage) || null;
+
+  const prompt_tokens = Number(
+    (out && out.prompt_tokens) ??
+    (o && o.prompt_tokens) ??
+    (usage && usage.prompt_tokens) ??
+    input.prompt_tokens ??
+    0
+  );
+  const completion_tokens = Number(
+    (out && out.completion_tokens) ??
+    (o && o.completion_tokens) ??
+    (usage && usage.completion_tokens) ??
+    0
+  );
+  const total_tokens = Number(
+    (out && out.total_tokens) ??
+    (o && o.total_tokens) ??
+    (usage && usage.total_tokens) ??
+    (prompt_tokens + completion_tokens)
+  );
+
+  const error_code = status === 'ok' ? null : String((out && out.error_code) || (o && o.error_code) || (o && o.error && (o.error.code || o.error.type)) || status);
+  const cost_usd = (out && typeof out.cost_usd === 'number') ? out.cost_usd : null;
+
+  return { status, prompt_tokens, completion_tokens, total_tokens, error_code, cost_usd };
+}
+
 /**
  * guardedCall(cwd, input, fn)
- * fn(req) must return: { status: 'ok'|'error'|'timeout', completion_tokens: number, error_code?: string }
+ *
+ * fn(req) can return either:
+ *  1) Normalized shape:
+ *     { status: 'ok'|'error'|'timeout', prompt_tokens?, completion_tokens?, total_tokens?, cost_usd?, error_code? }
+ *  2) Provider raw response (OpenAI-style), e.g.:
+ *     { status:'ok', response:{ usage:{prompt_tokens, completion_tokens, total_tokens} } }
+ *     { usage:{prompt_tokens, completion_tokens, total_tokens} }
+ *
+ * If token fields are missing, AIOpt will fall back to input.prompt_tokens and/or 0.
  */
 async function guardedCall(cwd, input, fn){
   const cfg=loadConfig(cwd);
@@ -186,13 +267,12 @@ async function guardedCall(cwd, input, fn){
     try{
       const out=await fn({ provider: input.provider, model: routed.model, endpoint: input.endpoint, max_output_tokens: maxOut, prompt_tokens: input.prompt_tokens, idempotency_key: idem });
       const latency_ms=Date.now()-t0;
-      const completion_tokens=Number(out.completion_tokens||0);
-      const total_tokens=Number(input.prompt_tokens||0)+completion_tokens;
-      const cost_usd=costUsd(rt, input.provider, routed.model, Number(input.prompt_tokens||0), completion_tokens);
-      appendJsonl(usagePath, { ts:new Date().toISOString(), request_id, trace_id, attempt, status: out.status, error_code: out.status==='ok'?null:String(out.error_code||out.status), provider: input.provider, model: routed.model, endpoint: input.endpoint, prompt_tokens:Number(input.prompt_tokens||0), completion_tokens, total_tokens, cost_usd, latency_ms, meta:{ routed_from: routed.routed_from, policy_hits } });
-      last=out;
-      if(out.status==='ok'){ IDEMPOTENCY.set(idem,out); return out; }
-      if(retryOn.has(out.status) && attempt<maxAttempts){ await sleep(Number(backoffs[Math.min(attempt-1, backoffs.length-1)]||200)); continue; }
+      const norm=normalizeResult(out, input);
+      const cost_usd=(typeof norm.cost_usd==='number') ? norm.cost_usd : costUsd(rt, input.provider, routed.model, norm.prompt_tokens, norm.completion_tokens);
+      appendJsonl(usagePath, { ts:new Date().toISOString(), request_id, trace_id, attempt, status: norm.status, error_code: norm.error_code, provider: input.provider, model: routed.model, endpoint: input.endpoint, prompt_tokens: norm.prompt_tokens, completion_tokens: norm.completion_tokens, total_tokens: norm.total_tokens, cost_usd, latency_ms, meta:{ routed_from: routed.routed_from, policy_hits } });
+      last={ status: norm.status, completion_tokens: norm.completion_tokens, error_code: norm.error_code };
+      if(norm.status==='ok'){ IDEMPOTENCY.set(idem,out); return out; }
+      if(retryOn.has(norm.status) && attempt<maxAttempts){ await sleep(Number(backoffs[Math.min(attempt-1, backoffs.length-1)]||200)); continue; }
       IDEMPOTENCY.set(idem,out); return out;
     }catch(e){
       const latency_ms=Date.now()-t0;
