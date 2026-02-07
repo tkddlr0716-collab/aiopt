@@ -16,7 +16,8 @@
   "scripts": {
     "build": "tsup",
     "dev": "node --enable-source-maps dist/cli.js",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "test:npx": "npm pack --silent && node -e \"const fs=require('fs');const p=fs.readdirSync('.').find(f=>/^aiopt-.*\\.tgz$/.test(f)); if(!p) throw new Error('tgz not found'); console.log('tgz',p);\" && npx --yes ./$(ls -1 aiopt-*.tgz | tail -n 1) init && npx --yes ./$(ls -1 aiopt-*.tgz | tail -n 1) scan --input ./aiopt-input/usage.jsonl && test -f ./aiopt-output/report.txt && echo OK"
   },
   "dependencies": {
     "commander": "^14.0.0",
