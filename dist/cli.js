@@ -481,7 +481,7 @@ var require_package = __commonJS({
   "package.json"(exports2, module2) {
     module2.exports = {
       name: "aiopt",
-      version: "0.2.8",
+      version: "0.2.9",
       description: "Pre-deploy LLM cost accident guardrail (serverless local CLI)",
       bin: {
         aiopt: "dist/cli.js"
@@ -1295,7 +1295,10 @@ async function startDashboard(cwd, opts) {
 <body>
   <div class="wrap">
     <div class="top">
-      <div class="h1">AIOpt Local Dashboard</div>
+      <div>
+        <div class="h1">AIOpt Local Dashboard</div>
+        <div class="mini" id="baseDir">base: \u2014</div>
+      </div>
       <div class="pill"><span class="dot"></span> local-only \xB7 reads <span class="k">./aiopt-output</span></div>
     </div>
 
@@ -1389,6 +1392,16 @@ function renderBars(el, items){
 }
 
 async function load(){
+  const meta = await fetch('/api/_meta').then(r=>r.ok?r.json():null);
+  if(meta && meta.baseDir){
+    document.getElementById('baseDir').textContent = 'base: ' + meta.baseDir;
+  }
+  if(meta && meta.missing && meta.missing.length){
+    // show missing files hint in the guard panel if nothing else yet
+    // (prevents users from thinking it is stuck on loading)
+    document.getElementById('guard').textContent = '(missing: ' + meta.missing.join(', ') + ')';
+  }
+
   const guardTxt = await fetch('/api/guard-last.txt').then(r=>r.ok?r.text():null);
   const guardMeta = await fetch('/api/guard-last.json').then(r=>r.ok?r.json():null);
 
@@ -1508,6 +1521,13 @@ load();
     }
     if (url.startsWith("/api/")) {
       const name = url.replace("/api/", "");
+      if (name === "_meta") {
+        const expected = ["guard-last.txt", "guard-last.json", "report.json", "report.md", "usage.jsonl", "guard-history.jsonl"];
+        const missing = expected.filter((f) => !import_fs7.default.existsSync(file(f)));
+        res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify({ baseDir: cwd, outDir, missing }, null, 2));
+        return;
+      }
       const allow = /* @__PURE__ */ new Set(["guard-last.txt", "guard-last.json", "guard-history.jsonl", "report.md", "report.json", "usage.jsonl"]);
       if (!allow.has(name)) {
         res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
@@ -1548,17 +1568,61 @@ var init_dashboard = __esm({
   }
 });
 
-// src/rates-util.ts
-function loadRateTableFromDistPath() {
-  const p = import_path8.default.join(__dirname, "..", "rates", "rate_table.json");
-  return JSON.parse(import_fs8.default.readFileSync(p, "utf8"));
+// src/find-output.ts
+var find_output_exports = {};
+__export(find_output_exports, {
+  findAioptOutputDir: () => findAioptOutputDir
+});
+function findAioptOutputDir(startCwd) {
+  let cur = import_path8.default.resolve(startCwd);
+  while (true) {
+    const outDir = import_path8.default.join(cur, "aiopt-output");
+    if (import_fs8.default.existsSync(outDir)) {
+      try {
+        if (import_fs8.default.statSync(outDir).isDirectory()) return { cwd: cur, outDir };
+      } catch {
+      }
+    }
+    const parent = import_path8.default.dirname(cur);
+    if (parent === cur) break;
+    cur = parent;
+  }
+  try {
+    const base = import_path8.default.resolve(startCwd);
+    const children = import_fs8.default.readdirSync(base, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => import_path8.default.join(base, d.name));
+    for (const child of children) {
+      const outDir = import_path8.default.join(child, "aiopt-output");
+      if (import_fs8.default.existsSync(outDir)) {
+        try {
+          if (import_fs8.default.statSync(outDir).isDirectory()) return { cwd: child, outDir };
+        } catch {
+        }
+      }
+    }
+  } catch {
+  }
+  return { cwd: import_path8.default.resolve(startCwd), outDir: import_path8.default.join(import_path8.default.resolve(startCwd), "aiopt-output") };
 }
 var import_fs8, import_path8;
-var init_rates_util = __esm({
-  "src/rates-util.ts"() {
+var init_find_output = __esm({
+  "src/find-output.ts"() {
     "use strict";
     import_fs8 = __toESM(require("fs"));
     import_path8 = __toESM(require("path"));
+  }
+});
+
+// src/rates-util.ts
+function loadRateTableFromDistPath() {
+  const p = import_path9.default.join(__dirname, "..", "rates", "rate_table.json");
+  return JSON.parse(import_fs9.default.readFileSync(p, "utf8"));
+}
+var import_fs9, import_path9;
+var init_rates_util = __esm({
+  "src/rates-util.ts"() {
+    "use strict";
+    import_fs9 = __toESM(require("fs"));
+    import_path9 = __toESM(require("path"));
   }
 });
 
@@ -1569,8 +1633,8 @@ __export(quickstart_exports, {
   seedDemoUsage: () => seedDemoUsage
 });
 function seedDemoUsage(outDir) {
-  import_fs9.default.mkdirSync(outDir, { recursive: true });
-  const p = import_path9.default.join(outDir, "usage.jsonl");
+  import_fs10.default.mkdirSync(outDir, { recursive: true });
+  const p = import_path10.default.join(outDir, "usage.jsonl");
   const now = Date.now();
   const lines = [];
   for (let i = 0; i < 60; i++) {
@@ -1587,18 +1651,18 @@ function seedDemoUsage(outDir) {
       meta: { feature_tag: i % 2 ? "summarize" : "coding" }
     });
   }
-  import_fs9.default.writeFileSync(p, lines.map((x) => JSON.stringify(x)).join("\n") + "\n");
+  import_fs10.default.writeFileSync(p, lines.map((x) => JSON.stringify(x)).join("\n") + "\n");
   return p;
 }
 function runQuickstart(cwd, opts) {
-  const outDir = import_path9.default.join(cwd, "aiopt-output");
+  const outDir = import_path10.default.join(cwd, "aiopt-output");
   const usagePath = seedDemoUsage(outDir);
   const rt = loadRateTableFromDistPath();
   const { readJsonl: readJsonl2 } = (init_io(), __toCommonJS(io_exports));
   const events = readJsonl2(usagePath);
   const { analysis, savings, policy, meta } = analyze(rt, events);
-  import_fs9.default.writeFileSync(import_path9.default.join(outDir, "analysis.json"), JSON.stringify(analysis, null, 2));
-  import_fs9.default.writeFileSync(import_path9.default.join(outDir, "report.json"), JSON.stringify({
+  import_fs10.default.writeFileSync(import_path10.default.join(outDir, "analysis.json"), JSON.stringify(analysis, null, 2));
+  import_fs10.default.writeFileSync(import_path10.default.join(outDir, "report.json"), JSON.stringify({
     version: 3,
     generated_at: (/* @__PURE__ */ new Date()).toISOString(),
     confidence: analysis.unknown_models?.length ? "MEDIUM" : "HIGH",
@@ -1618,8 +1682,8 @@ function runQuickstart(cwd, opts) {
     unknown_models: analysis.unknown_models || [],
     notes: []
   }, null, 2));
-  import_fs9.default.writeFileSync(import_path9.default.join(outDir, "cost-policy.json"), JSON.stringify(policy, null, 2));
-  import_fs9.default.writeFileSync(import_path9.default.join(outDir, "report.md"), "# AIOpt quickstart demo\n\nThis is a demo report generated by `aiopt quickstart --demo`.\n");
+  import_fs10.default.writeFileSync(import_path10.default.join(outDir, "cost-policy.json"), JSON.stringify(policy, null, 2));
+  import_fs10.default.writeFileSync(import_path10.default.join(outDir, "report.md"), "# AIOpt quickstart demo\n\nThis is a demo report generated by `aiopt quickstart --demo`.\n");
   const r = runGuard(rt, {
     baselineEvents: events,
     candidate: {
@@ -1630,12 +1694,12 @@ function runQuickstart(cwd, opts) {
   });
   return { usagePath, outDir, guard: r, port: opts.port };
 }
-var import_fs9, import_path9;
+var import_fs10, import_path10;
 var init_quickstart = __esm({
   "src/quickstart.ts"() {
     "use strict";
-    import_fs9 = __toESM(require("fs"));
-    import_path9 = __toESM(require("path"));
+    import_fs10 = __toESM(require("fs"));
+    import_path10 = __toESM(require("path"));
     init_scan();
     init_rates_util();
     init_guard();
@@ -1643,8 +1707,8 @@ var init_quickstart = __esm({
 });
 
 // src/cli.ts
-var import_fs10 = __toESM(require("fs"));
-var import_path10 = __toESM(require("path"));
+var import_fs11 = __toESM(require("fs"));
+var import_path11 = __toESM(require("path"));
 var import_commander = require("commander");
 init_io();
 init_scan();
@@ -1652,17 +1716,17 @@ var program = new import_commander.Command();
 var DEFAULT_INPUT = "./aiopt-output/usage.jsonl";
 var DEFAULT_OUTPUT_DIR = "./aiopt-output";
 function loadRateTable() {
-  const p = import_path10.default.join(__dirname, "..", "rates", "rate_table.json");
-  return JSON.parse(import_fs10.default.readFileSync(p, "utf8"));
+  const p = import_path11.default.join(__dirname, "..", "rates", "rate_table.json");
+  return JSON.parse(import_fs11.default.readFileSync(p, "utf8"));
 }
 program.name("aiopt").description("AI \uBE44\uC6A9 \uC790\uB3D9 \uC808\uAC10 \uC778\uD504\uB77C \u2014 \uC11C\uBC84 \uC5C6\uB294 \uB85C\uCEEC CLI MVP").version(require_package().version);
 program.command("init").description("aiopt-input/ \uBC0F \uC0D8\uD50C usage.jsonl, aiopt-output/ \uC0DD\uC131").action(() => {
   ensureDir("./aiopt-input");
   ensureDir("./aiopt-output");
-  const sampleSrc = import_path10.default.join(__dirname, "..", "samples", "sample_usage.jsonl");
-  const dst = import_path10.default.join("./aiopt-input", "usage.jsonl");
-  if (!import_fs10.default.existsSync(dst)) {
-    import_fs10.default.copyFileSync(sampleSrc, dst);
+  const sampleSrc = import_path11.default.join(__dirname, "..", "samples", "sample_usage.jsonl");
+  const dst = import_path11.default.join("./aiopt-input", "usage.jsonl");
+  if (!import_fs11.default.existsSync(dst)) {
+    import_fs11.default.copyFileSync(sampleSrc, dst);
     console.log("Created ./aiopt-input/usage.jsonl (sample)");
   } else {
     console.log("Exists ./aiopt-input/usage.jsonl (skip)");
@@ -1672,7 +1736,7 @@ program.command("init").description("aiopt-input/ \uBC0F \uC0D8\uD50C usage.json
 program.command("scan").description("\uC785\uB825 \uB85C\uADF8(JSONL/CSV)\uB97C \uBD84\uC11D\uD558\uACE0 report.md/report.json + patches\uAE4C\uC9C0 \uC0DD\uC131").option("--input <path>", "input file path (default: ./aiopt-output/usage.jsonl)", DEFAULT_INPUT).option("--out <dir>", "output dir (default: ./aiopt-output)", DEFAULT_OUTPUT_DIR).action(async (opts) => {
   const inputPath = String(opts.input);
   const outDir = String(opts.out);
-  if (!import_fs10.default.existsSync(inputPath)) {
+  if (!import_fs11.default.existsSync(inputPath)) {
     console.error(`Input not found: ${inputPath}`);
     process.exit(1);
   }
@@ -1688,7 +1752,7 @@ program.command("scan").description("\uC785\uB825 \uB85C\uADF8(JSONL/CSV)\uB97C 
     const tag = f.status === "no-issue" ? "(no issue detected)" : `($${Math.round(f.impact_usd * 100) / 100})`;
     console.log(`${i + 1}) ${f.title} ${tag}`);
   });
-  console.log(`Report: ${import_path10.default.join(outDir, "report.md")}`);
+  console.log(`Report: ${import_path11.default.join(outDir, "report.md")}`);
 });
 program.command("policy").description("\uB9C8\uC9C0\uB9C9 scan \uACB0\uACFC \uAE30\uBC18\uC73C\uB85C cost-policy.json\uB9CC \uC7AC\uC0DD\uC131 (MVP: scan\uACFC \uB3D9\uC77C \uB85C\uC9C1)").option("--input <path>", "input file path (default: ./aiopt-input/usage.jsonl)", DEFAULT_INPUT).option("--out <dir>", "output dir (default: ./aiopt-output)", DEFAULT_OUTPUT_DIR).action((opts) => {
   const inputPath = String(opts.input);
@@ -1698,7 +1762,7 @@ program.command("policy").description("\uB9C8\uC9C0\uB9C9 scan \uACB0\uACFC \uAE
   const { policy } = analyze(rt, events);
   policy.generated_from.input = inputPath;
   ensureDir(outDir);
-  import_fs10.default.writeFileSync(import_path10.default.join(outDir, "cost-policy.json"), JSON.stringify(policy, null, 2));
+  import_fs11.default.writeFileSync(import_path11.default.join(outDir, "cost-policy.json"), JSON.stringify(policy, null, 2));
   console.log(`OK: ${outDir}/cost-policy.json`);
 });
 program.command("install").description("Install AIOpt guardrails: create aiopt/ + policies + usage.jsonl").option("--force", "overwrite existing files").option("--seed-sample", "seed 1 sample line into aiopt-output/usage.jsonl").action(async (opts) => {
@@ -1738,7 +1802,7 @@ licenseCmd.command("verify").option("--path <path>", "license.json path (default
   const { DEFAULT_PUBLIC_KEY_PEM: DEFAULT_PUBLIC_KEY_PEM2, defaultLicensePath: defaultLicensePath2, readLicenseFile: readLicenseFile2, verifyLicenseKey: verifyLicenseKey2 } = await Promise.resolve().then(() => (init_license(), license_exports));
   const p = opts.path ? String(opts.path) : defaultLicensePath2(process.cwd());
   const pub = process.env.AIOPT_LICENSE_PUBKEY || DEFAULT_PUBLIC_KEY_PEM2;
-  if (!import_fs10.default.existsSync(p)) {
+  if (!import_fs11.default.existsSync(p)) {
     console.error(`FAIL: license file not found: ${p}`);
     process.exit(3);
   }
@@ -1755,7 +1819,7 @@ licenseCmd.command("status").option("--path <path>", "license.json path (default
   const { DEFAULT_PUBLIC_KEY_PEM: DEFAULT_PUBLIC_KEY_PEM2, defaultLicensePath: defaultLicensePath2, readLicenseFile: readLicenseFile2, verifyLicenseKey: verifyLicenseKey2 } = await Promise.resolve().then(() => (init_license(), license_exports));
   const p = opts.path ? String(opts.path) : defaultLicensePath2(process.cwd());
   const pub = process.env.AIOPT_LICENSE_PUBKEY || DEFAULT_PUBLIC_KEY_PEM2;
-  if (!import_fs10.default.existsSync(p)) {
+  if (!import_fs11.default.existsSync(p)) {
     console.log("NO_LICENSE");
     process.exit(2);
   }
@@ -1777,11 +1841,11 @@ program.command("guard").description("Pre-deploy guardrail: compare baseline usa
     console.error("FAIL: diff mode requires both --baseline and --candidate");
     process.exit(3);
   }
-  if (!import_fs10.default.existsSync(baselinePath)) {
+  if (!import_fs11.default.existsSync(baselinePath)) {
     console.error(`FAIL: baseline not found: ${baselinePath}`);
     process.exit(3);
   }
-  if (candidatePath && !import_fs10.default.existsSync(candidatePath)) {
+  if (candidatePath && !import_fs11.default.existsSync(candidatePath)) {
     console.error(`FAIL: candidate not found: ${candidatePath}`);
     process.exit(3);
   }
@@ -1803,20 +1867,27 @@ program.command("guard").description("Pre-deploy guardrail: compare baseline usa
   });
   console.log(r.message);
   try {
-    const outDir = import_path10.default.resolve(DEFAULT_OUTPUT_DIR);
-    import_fs10.default.mkdirSync(outDir, { recursive: true });
+    const outDir = import_path11.default.resolve(DEFAULT_OUTPUT_DIR);
+    import_fs11.default.mkdirSync(outDir, { recursive: true });
     const ts = (/* @__PURE__ */ new Date()).toISOString();
-    import_fs10.default.writeFileSync(import_path10.default.join(outDir, "guard-last.txt"), r.message);
-    import_fs10.default.writeFileSync(import_path10.default.join(outDir, "guard-last.json"), JSON.stringify({ ts, exitCode: r.exitCode }, null, 2));
+    import_fs11.default.writeFileSync(import_path11.default.join(outDir, "guard-last.txt"), r.message);
+    import_fs11.default.writeFileSync(import_path11.default.join(outDir, "guard-last.json"), JSON.stringify({ ts, exitCode: r.exitCode }, null, 2));
     const histLine = JSON.stringify({ ts, exitCode: r.exitCode, mode: candidateEvents ? "diff" : "transform", baseline: baselinePath, candidate: candidatePath }) + "\n";
-    import_fs10.default.appendFileSync(import_path10.default.join(outDir, "guard-history.jsonl"), histLine);
+    import_fs11.default.appendFileSync(import_path11.default.join(outDir, "guard-history.jsonl"), histLine);
   } catch {
   }
   process.exit(r.exitCode);
 });
-program.command("dashboard").description("Local dashboard (localhost only): view last guard + last scan outputs").option("--port <n>", "port (default: 3010)", (v) => Number(v), 3010).action(async (opts) => {
+program.command("dashboard").description("Local dashboard (localhost only): view last guard + last scan outputs").option("--port <n>", "port (default: 3010)", (v) => Number(v), 3010).option("--dir <path>", "base directory containing ./aiopt-output (default: cwd)").option("--auto", "auto-detect by searching parents (and one-level children) for aiopt-output").action(async (opts) => {
   const { startDashboard: startDashboard2 } = await Promise.resolve().then(() => (init_dashboard(), dashboard_exports));
-  await startDashboard2(process.cwd(), { port: Number(opts.port || 3010) });
+  const base = opts.dir ? String(opts.dir) : process.cwd();
+  if (opts.auto) {
+    const { findAioptOutputDir: findAioptOutputDir2 } = await Promise.resolve().then(() => (init_find_output(), find_output_exports));
+    const found = findAioptOutputDir2(base);
+    await startDashboard2(found.cwd, { port: Number(opts.port || 3010) });
+    return;
+  }
+  await startDashboard2(base, { port: Number(opts.port || 3010) });
 });
 program.command("quickstart").description("1-minute demo: generate sample usage, run scan+guard, and print dashboard URL").option("--demo", "run demo workflow (writes to ./aiopt-output)").option("--port <n>", "dashboard port (default: 3010)", (v) => Number(v), 3010).option("--budget-monthly <usd>", "optional budget gate for the demo guard", (v) => Number(v)).option("--serve", "start the local dashboard after generating demo outputs").option("--open", "best-effort open browser to the dashboard URL").action(async (opts) => {
   if (!opts.demo) {
@@ -1830,14 +1901,14 @@ program.command("quickstart").description("1-minute demo: generate sample usage,
   console.log("--- guard ---");
   console.log(r.guard.message);
   try {
-    const fs11 = await import("fs");
-    const path11 = await import("path");
-    fs11.mkdirSync(r.outDir, { recursive: true });
+    const fs12 = await import("fs");
+    const path12 = await import("path");
+    fs12.mkdirSync(r.outDir, { recursive: true });
     const ts = (/* @__PURE__ */ new Date()).toISOString();
-    fs11.writeFileSync(path11.join(r.outDir, "guard-last.txt"), r.guard.message);
-    fs11.writeFileSync(path11.join(r.outDir, "guard-last.json"), JSON.stringify({ ts, exitCode: r.guard.exitCode }, null, 2));
+    fs12.writeFileSync(path12.join(r.outDir, "guard-last.txt"), r.guard.message);
+    fs12.writeFileSync(path12.join(r.outDir, "guard-last.json"), JSON.stringify({ ts, exitCode: r.guard.exitCode }, null, 2));
     const histLine = JSON.stringify({ ts, exitCode: r.guard.exitCode, mode: "quickstart", baseline: r.usagePath, candidate: null }) + "\n";
-    fs11.appendFileSync(path11.join(r.outDir, "guard-history.jsonl"), histLine);
+    fs12.appendFileSync(path12.join(r.outDir, "guard-history.jsonl"), histLine);
   } catch {
   }
   console.log("--- next ---");

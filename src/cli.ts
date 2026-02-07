@@ -270,9 +270,18 @@ program
   .command('dashboard')
   .description('Local dashboard (localhost only): view last guard + last scan outputs')
   .option('--port <n>', 'port (default: 3010)', (v) => Number(v), 3010)
+  .option('--dir <path>', 'base directory containing ./aiopt-output (default: cwd)')
+  .option('--auto', 'auto-detect by searching parents (and one-level children) for aiopt-output')
   .action(async (opts) => {
     const { startDashboard } = await import('./dashboard');
-    await startDashboard(process.cwd(), { port: Number(opts.port || 3010) });
+    const base = opts.dir ? String(opts.dir) : process.cwd();
+    if (opts.auto) {
+      const { findAioptOutputDir } = await import('./find-output');
+      const found = findAioptOutputDir(base);
+      await startDashboard(found.cwd, { port: Number(opts.port || 3010) });
+      return;
+    }
+    await startDashboard(base, { port: Number(opts.port || 3010) });
   });
 
 program

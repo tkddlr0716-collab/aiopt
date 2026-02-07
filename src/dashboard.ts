@@ -82,7 +82,10 @@ export async function startDashboard(cwd: string, opts: { port: number }) {
 <body>
   <div class="wrap">
     <div class="top">
-      <div class="h1">AIOpt Local Dashboard</div>
+      <div>
+        <div class="h1">AIOpt Local Dashboard</div>
+        <div class="mini" id="baseDir">base: —</div>
+      </div>
       <div class="pill"><span class="dot"></span> local-only · reads <span class="k">./aiopt-output</span></div>
     </div>
 
@@ -176,6 +179,16 @@ function renderBars(el, items){
 }
 
 async function load(){
+  const meta = await fetch('/api/_meta').then(r=>r.ok?r.json():null);
+  if(meta && meta.baseDir){
+    document.getElementById('baseDir').textContent = 'base: ' + meta.baseDir;
+  }
+  if(meta && meta.missing && meta.missing.length){
+    // show missing files hint in the guard panel if nothing else yet
+    // (prevents users from thinking it is stuck on loading)
+    document.getElementById('guard').textContent = '(missing: ' + meta.missing.join(', ') + ')';
+  }
+
   const guardTxt = await fetch('/api/guard-last.txt').then(r=>r.ok?r.text():null);
   const guardMeta = await fetch('/api/guard-last.json').then(r=>r.ok?r.json():null);
 
@@ -293,6 +306,15 @@ load();
 
     if (url.startsWith('/api/')) {
       const name = url.replace('/api/', '');
+
+      if (name === '_meta') {
+        const expected = ['guard-last.txt', 'guard-last.json', 'report.json', 'report.md', 'usage.jsonl', 'guard-history.jsonl'];
+        const missing = expected.filter(f => !fs.existsSync(file(f)));
+        res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ baseDir: cwd, outDir, missing }, null, 2));
+        return;
+      }
+
       const allow = new Set(['guard-last.txt', 'guard-last.json', 'guard-history.jsonl', 'report.md', 'report.json', 'usage.jsonl']);
       if (!allow.has(name)) {
         res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
