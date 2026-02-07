@@ -6,6 +6,13 @@ var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __esm = (fn, res) => function __init() {
+  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+};
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
 var __copyProps = (to, from, except, desc) => {
   if (from && typeof from === "object" || typeof from === "function") {
     for (let key of __getOwnPropNames(from))
@@ -23,9 +30,210 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
+// src/install.ts
+var install_exports = {};
+__export(install_exports, {
+  runInstall: () => runInstall
+});
+function ensureDir2(p) {
+  import_fs3.default.mkdirSync(p, { recursive: true });
+}
+function writeFile(filePath, content, force) {
+  if (!force && import_fs3.default.existsSync(filePath)) return { wrote: false, reason: "exists" };
+  ensureDir2(import_path3.default.dirname(filePath));
+  import_fs3.default.writeFileSync(filePath, content);
+  return { wrote: true };
+}
+function runInstall(cwd, opts) {
+  const force = Boolean(opts.force);
+  const aioptDir = import_path3.default.join(cwd, "aiopt");
+  const policiesDir = import_path3.default.join(aioptDir, "policies");
+  const outDir = import_path3.default.join(cwd, "aiopt-output");
+  ensureDir2(aioptDir);
+  ensureDir2(policiesDir);
+  ensureDir2(outDir);
+  const created = [];
+  const readme = `# AIOpt
+
+AIOpt\uB294 **scan \uD234\uC774 \uC544\uB2C8\uB77C \uC124\uCE58\uD615 \uBE44\uC6A9 \uAC00\uB4DC\uB808\uC77C**\uC785\uB2C8\uB2E4.
+
+## Quick start
+\`\`\`bash
+npx aiopt install --force
+npx aiopt doctor
+# (your app runs, wrapper logs usage)
+npx aiopt scan
+\`\`\`
+
+- \uC11C\uBC84/\uB300\uC2DC\uBCF4\uB4DC/\uACC4\uC815/\uC5C5\uB85C\uB4DC/\uACB0\uC81C/\uD504\uB85D\uC2DC \uC5C6\uC74C
+- \uB85C\uCEEC \uD30C\uC77C \uAE30\uBC18(\uC815\uCC45 + usage.jsonl)
+- LLM \uD638\uCD9C \uAE08\uC9C0(\uC218\uD559/\uB8F0 \uAE30\uBC18)
+`;
+  const r1 = writeFile(import_path3.default.join(aioptDir, "README.md"), readme, force);
+  created.push({ path: "aiopt/README.md", status: r1.wrote ? "created" : "skipped" });
+  const config = {
+    version: 1,
+    installed_at: (/* @__PURE__ */ new Date()).toISOString(),
+    output_dir: "./aiopt-output",
+    usage_path: "./aiopt-output/usage.jsonl",
+    policies_dir: "./aiopt/policies",
+    rate_table: { path: "./rates/rate_table.json" }
+  };
+  const r2 = writeFile(import_path3.default.join(aioptDir, "aiopt.config.json"), JSON.stringify(config, null, 2) + "\n", force);
+  created.push({ path: "aiopt/aiopt.config.json", status: r2.wrote ? "created" : "skipped" });
+  const routing = {
+    version: 1,
+    rules: [
+      { match: { feature_tag_in: ["summarize", "classify", "translate"] }, action: { tier: "cheap", reason: "cheap feature routing" } },
+      { match: { feature_tag_in: ["coding", "reasoning"] }, action: { tier: "default", reason: "keep for quality" } }
+    ]
+  };
+  const retry = {
+    version: 1,
+    max_attempts: 2,
+    backoff_ms: [200, 500],
+    retry_on_status: ["error", "timeout"],
+    notes: "MVP deterministic retry tuning"
+  };
+  const output = {
+    version: 1,
+    max_output_tokens_default: 1024,
+    per_feature: {
+      summarize: 512,
+      classify: 256,
+      translate: 512
+    }
+  };
+  const context = {
+    version: 1,
+    input_token_soft_cap: 12e3,
+    reduce_top_percentile: 0.2,
+    assumed_reduction_ratio: 0.25
+  };
+  const p1 = writeFile(import_path3.default.join(policiesDir, "routing.json"), JSON.stringify(routing, null, 2) + "\n", force);
+  const p2 = writeFile(import_path3.default.join(policiesDir, "retry.json"), JSON.stringify(retry, null, 2) + "\n", force);
+  const p3 = writeFile(import_path3.default.join(policiesDir, "output.json"), JSON.stringify(output, null, 2) + "\n", force);
+  const p4 = writeFile(import_path3.default.join(policiesDir, "context.json"), JSON.stringify(context, null, 2) + "\n", force);
+  created.push({ path: "aiopt/policies/routing.json", status: p1.wrote ? "created" : "skipped" });
+  created.push({ path: "aiopt/policies/retry.json", status: p2.wrote ? "created" : "skipped" });
+  created.push({ path: "aiopt/policies/output.json", status: p3.wrote ? "created" : "skipped" });
+  created.push({ path: "aiopt/policies/context.json", status: p4.wrote ? "created" : "skipped" });
+  const wrapperPath = import_path3.default.join(aioptDir, "aiopt-wrapper.ts");
+  const wrapper = `// AIOpt Wrapper (skeleton)
+// NOTE: This is a template file. T2 will implement real routing/retry/caps/logging.
+
+export type AioptWrapperOptions = {
+  usagePath?: string;
+};
+
+export function aioptWrap<T extends (...args: any[]) => Promise<any>>(fn: T, _opts?: AioptWrapperOptions): T {
+  return (async (...args: any[]) => {
+    return fn(...args);
+  }) as T;
+}
+`;
+  const w = writeFile(wrapperPath, wrapper, force);
+  created.push({ path: "aiopt/aiopt-wrapper.ts", status: w.wrote ? "created" : "skipped" });
+  const usagePath = import_path3.default.join(outDir, "usage.jsonl");
+  if (force || !import_fs3.default.existsSync(usagePath)) {
+    const header = {
+      ts: (/* @__PURE__ */ new Date()).toISOString(),
+      request_id: "sample",
+      trace_id: "sample",
+      attempt: 1,
+      status: "ok",
+      error_code: null,
+      provider: "openai",
+      model: "gpt-5-mini",
+      endpoint: "demo",
+      prompt_tokens: 12,
+      completion_tokens: 3,
+      total_tokens: 15,
+      cost_usd: 0,
+      latency_ms: 1,
+      meta: { routed_from: null, policy_hits: ["install-sample"] }
+    };
+    import_fs3.default.writeFileSync(usagePath, JSON.stringify(header) + "\n");
+    created.push({ path: "aiopt-output/usage.jsonl", status: "created" });
+  } else {
+    created.push({ path: "aiopt-output/usage.jsonl", status: "skipped" });
+  }
+  return { created };
+}
+var import_fs3, import_path3;
+var init_install = __esm({
+  "src/install.ts"() {
+    "use strict";
+    import_fs3 = __toESM(require("fs"));
+    import_path3 = __toESM(require("path"));
+  }
+});
+
+// src/doctor.ts
+var doctor_exports = {};
+__export(doctor_exports, {
+  runDoctor: () => runDoctor
+});
+function canWrite(dir) {
+  try {
+    import_fs4.default.mkdirSync(dir, { recursive: true });
+    const p = import_path4.default.join(dir, `.aiopt-write-test-${Date.now()}`);
+    import_fs4.default.writeFileSync(p, "ok");
+    import_fs4.default.unlinkSync(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function tailLines(filePath, n) {
+  try {
+    const raw = import_fs4.default.readFileSync(filePath, "utf8");
+    const lines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
+    return lines.slice(Math.max(0, lines.length - n));
+  } catch {
+    return [];
+  }
+}
+function runDoctor(cwd) {
+  const aioptDir = import_path4.default.join(cwd, "aiopt");
+  const policiesDir = import_path4.default.join(aioptDir, "policies");
+  const outDir = import_path4.default.join(cwd, "aiopt-output");
+  const usagePath = import_path4.default.join(outDir, "usage.jsonl");
+  const checks = [];
+  checks.push({ name: "aiopt/ exists", ok: import_fs4.default.existsSync(aioptDir) });
+  checks.push({ name: "aiopt/policies exists", ok: import_fs4.default.existsSync(policiesDir) });
+  checks.push({ name: "aiopt-output/ writable", ok: canWrite(outDir) });
+  checks.push({ name: "usage.jsonl exists", ok: import_fs4.default.existsSync(usagePath), detail: usagePath });
+  const last5raw = tailLines(usagePath, 5);
+  const last5 = last5raw.map((l) => {
+    try {
+      const j = JSON.parse(l);
+      return {
+        status: j.status,
+        provider: j.provider,
+        model: j.model,
+        endpoint: j.endpoint,
+        attempt: j.attempt
+      };
+    } catch {
+      return {};
+    }
+  });
+  const ok = checks.every((c) => c.ok);
+  return { ok, checks, last5 };
+}
+var import_fs4, import_path4;
+var init_doctor = __esm({
+  "src/doctor.ts"() {
+    "use strict";
+    import_fs4 = __toESM(require("fs"));
+    import_path4 = __toESM(require("path"));
+  }
+});
+
 // src/cli.ts
-var import_fs3 = __toESM(require("fs"));
-var import_path3 = __toESM(require("path"));
+var import_fs5 = __toESM(require("fs"));
+var import_path5 = __toESM(require("path"));
 var import_commander = require("commander");
 
 // src/io.ts
@@ -268,17 +476,17 @@ var program = new import_commander.Command();
 var DEFAULT_INPUT = "./aiopt-input/usage.jsonl";
 var DEFAULT_OUTPUT_DIR = "./aiopt-output";
 function loadRateTable() {
-  const p = import_path3.default.join(__dirname, "..", "rates", "rate_table.json");
-  return JSON.parse(import_fs3.default.readFileSync(p, "utf8"));
+  const p = import_path5.default.join(__dirname, "..", "rates", "rate_table.json");
+  return JSON.parse(import_fs5.default.readFileSync(p, "utf8"));
 }
 program.name("aiopt").description("AI \uBE44\uC6A9 \uC790\uB3D9 \uC808\uAC10 \uC778\uD504\uB77C \u2014 \uC11C\uBC84 \uC5C6\uB294 \uB85C\uCEEC CLI MVP").version("0.0.1");
 program.command("init").description("aiopt-input/ \uBC0F \uC0D8\uD50C usage.jsonl, aiopt-output/ \uC0DD\uC131").action(() => {
   ensureDir("./aiopt-input");
   ensureDir("./aiopt-output");
-  const sampleSrc = import_path3.default.join(__dirname, "..", "samples", "sample_usage.jsonl");
-  const dst = import_path3.default.join("./aiopt-input", "usage.jsonl");
-  if (!import_fs3.default.existsSync(dst)) {
-    import_fs3.default.copyFileSync(sampleSrc, dst);
+  const sampleSrc = import_path5.default.join(__dirname, "..", "samples", "sample_usage.jsonl");
+  const dst = import_path5.default.join("./aiopt-input", "usage.jsonl");
+  if (!import_fs5.default.existsSync(dst)) {
+    import_fs5.default.copyFileSync(sampleSrc, dst);
     console.log("Created ./aiopt-input/usage.jsonl (sample)");
   } else {
     console.log("Exists ./aiopt-input/usage.jsonl (skip)");
@@ -288,7 +496,7 @@ program.command("init").description("aiopt-input/ \uBC0F \uC0D8\uD50C usage.json
 program.command("scan").description("\uC785\uB825 \uB85C\uADF8(JSONL/CSV)\uB97C \uBD84\uC11D\uD558\uACE0 3\uAC1C \uC0B0\uCD9C\uBB3C \uC0DD\uC131").option("--input <path>", "input file path (default: ./aiopt-input/usage.jsonl)", DEFAULT_INPUT).option("--out <dir>", "output dir (default: ./aiopt-output)", DEFAULT_OUTPUT_DIR).action((opts) => {
   const inputPath = String(opts.input);
   const outDir = String(opts.out);
-  if (!import_fs3.default.existsSync(inputPath)) {
+  if (!import_fs5.default.existsSync(inputPath)) {
     console.error(`Input not found: ${inputPath}`);
     process.exit(1);
   }
@@ -309,8 +517,27 @@ program.command("policy").description("\uB9C8\uC9C0\uB9C9 scan \uACB0\uACFC \uAE
   const { policy } = analyze(rt, events);
   policy.generated_from.input = inputPath;
   ensureDir(outDir);
-  import_fs3.default.writeFileSync(import_path3.default.join(outDir, "cost-policy.json"), JSON.stringify(policy, null, 2));
+  import_fs5.default.writeFileSync(import_path5.default.join(outDir, "cost-policy.json"), JSON.stringify(policy, null, 2));
   console.log(`OK: ${outDir}/cost-policy.json`);
+});
+program.command("install").description("Install AIOpt guardrails: create aiopt/ + policies + usage.jsonl").option("--force", "overwrite existing files").action(async (opts) => {
+  const { runInstall: runInstall2 } = await Promise.resolve().then(() => (init_install(), install_exports));
+  const result = runInstall2(process.cwd(), { force: Boolean(opts.force) });
+  for (const c of result.created) {
+    console.log(`${c.status === "created" ? "CREATED" : "SKIP"}: ${c.path}`);
+  }
+});
+program.command("doctor").description("Check installation + print last 5 usage events").action(async () => {
+  const { runDoctor: runDoctor2 } = await Promise.resolve().then(() => (init_doctor(), doctor_exports));
+  const r = runDoctor2(process.cwd());
+  console.log(r.ok ? "OK: doctor" : "WARN: doctor");
+  for (const c of r.checks) {
+    console.log(`${c.ok ? "OK" : "FAIL"}: ${c.name}${c.detail ? ` (${c.detail})` : ""}`);
+  }
+  console.log("--- last5 usage");
+  for (const x of r.last5) {
+    console.log(JSON.stringify(x));
+  }
 });
 program.parse(process.argv);
 //# sourceMappingURL=cli.js.map

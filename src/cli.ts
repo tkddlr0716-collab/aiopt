@@ -88,4 +88,33 @@ program
     console.log(`OK: ${outDir}/cost-policy.json`);
   });
 
+// v0.2: install/doctor (no servers)
+program
+  .command('install')
+  .description('Install AIOpt guardrails: create aiopt/ + policies + usage.jsonl')
+  .option('--force', 'overwrite existing files')
+  .action(async (opts) => {
+    const { runInstall } = await import('./install');
+    const result = runInstall(process.cwd(), { force: Boolean(opts.force) });
+    for (const c of result.created) {
+      console.log(`${c.status === 'created' ? 'CREATED' : 'SKIP'}: ${c.path}`);
+    }
+  });
+
+program
+  .command('doctor')
+  .description('Check installation + print last 5 usage events')
+  .action(async () => {
+    const { runDoctor } = await import('./doctor');
+    const r = runDoctor(process.cwd());
+    console.log(r.ok ? 'OK: doctor' : 'WARN: doctor');
+    for (const c of r.checks) {
+      console.log(`${c.ok ? 'OK' : 'FAIL'}: ${c.name}${c.detail ? ` (${c.detail})` : ''}`);
+    }
+    console.log('--- last5 usage');
+    for (const x of r.last5) {
+      console.log(JSON.stringify(x));
+    }
+  });
+
 program.parse(process.argv);
