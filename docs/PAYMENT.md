@@ -36,6 +36,21 @@ npx aiopt license verify
 
 > 현재 repo에는 **public key만** 들어있고, private key는 절대 커밋하지 않습니다.
 
+## 발급(운영자) 빠른 시작
+
+1) RSA private key 준비(절대 커밋 금지)
+2) 라이선스 키 발급:
+
+```bash
+node scripts/issue-license.js --priv ./private.pem --sub user@example.com --plan pro --days 30
+```
+
+3) 유저에게 키 전달 후 활성화 안내:
+
+```bash
+npx aiopt license activate <LICENSE_KEY>
+```
+
 ## 다음 단계(서비스화)
 - Polar 상품 URL 확정 후 `POLAR_PRO_URL`, `POLAR_TEAM_URL` 환경변수 설정
 - 결제 완료 후 자동 발급(웹훅/스크립트) 파이프라인 연결(추후)
