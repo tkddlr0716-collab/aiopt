@@ -205,6 +205,7 @@ program
   .option('--output-mult <n>', 'multiply output_tokens by n (transform mode only)', (v) => Number(v))
   .option('--retries-delta <n>', 'add n to retries (transform mode only)', (v) => Number(v))
   .option('--call-mult <n>', 'multiply call volume by n (traffic spike)', (v) => Number(v))
+  .option('--budget-monthly <usd>', 'fail if estimated candidate monthly cost exceeds this budget', (v) => Number(v))
   .action(async (opts) => {
     const rt = loadRateTable();
 
@@ -241,7 +242,8 @@ program
         contextMultiplier: opts.contextMult,
         outputMultiplier: opts.outputMult,
         retriesDelta: opts.retriesDelta,
-        callMultiplier: opts.callMult
+        callMultiplier: opts.callMult,
+        budgetMonthlyUsd: opts.budgetMonthly
       }
     });
 

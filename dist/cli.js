@@ -945,7 +945,7 @@ function accidentRiskFromMonthly(monthly) {
 function round23(n) {
   return Math.round(n * 100) / 100;
 }
-function monthEstimate(delta, events) {
+function windowDays(events) {
   let days = 1;
   try {
     const times = events.map((e) => Date.parse(e.ts)).filter((t) => Number.isFinite(t)).sort((a, b) => a - b);
@@ -957,6 +957,10 @@ function monthEstimate(delta, events) {
   } catch {
     days = 1;
   }
+  return days;
+}
+function monthEstimate(delta, events) {
+  const days = windowDays(events);
   return delta * 30 / days;
 }
 function applyCandidate(events, cand) {
@@ -1051,6 +1055,9 @@ function runGuard(rt, input) {
     candCost += retryUnit * input.candidate.retriesDelta;
   }
   const delta = candCost - baseCost;
+  const days = windowDays(baselineEvents);
+  const baselineMonthly = baseCost * 30 / days;
+  const candidateMonthly = candCost * 30 / days;
   const changeConf = input.candidateEvents ? { level: "High", reasons: ["actual logs diff (--baseline/--candidate)"] } : confidenceFromChange(input.candidate);
   const dq = assessDataQuality(baselineEvents, base);
   const conf = { level: degrade(changeConf.level, dq.penalty), reasons: [...changeConf.reasons, ...dq.reasons.map((r) => `data: ${r}`)] };
@@ -1065,11 +1072,37 @@ function runGuard(rt, input) {
     exitCode = 2;
     headline = "WARN: possible LLM cost accident";
   }
+  const budget = input.candidate.budgetMonthlyUsd;
+  if (budget && Number.isFinite(budget) && budget > 0 && candidateMonthly > budget) {
+    exitCode = 3;
+    headline = "FAIL: candidate exceeds monthly budget";
+  }
   const reasons = conf.reasons.length ? conf.reasons.join(", ") : "n/a";
+  function topCauses() {
+    const out = [];
+    if (!input.candidateEvents) {
+      if (callMult !== 1) out.push("traffic spike (call-mult)");
+      if (input.candidate.retriesDelta && input.candidate.retriesDelta !== 0) out.push("retry spike (retries-delta)");
+      if (input.candidate.model || input.candidate.provider) out.push("model/provider change");
+      if (input.candidate.contextMultiplier && input.candidate.contextMultiplier !== 1) out.push("context length change");
+      if (input.candidate.outputMultiplier && input.candidate.outputMultiplier !== 1) out.push("output length change");
+    } else {
+      if (candidateEvents.length !== baselineEvents.length) out.push("traffic/call volume changed");
+      const bTop = base.analysis.by_model_top?.[0]?.key;
+      const cTop = cand.analysis.by_model_top?.[0]?.key;
+      if (bTop && cTop && bTop !== cTop) out.push("model mix changed");
+      if ((cand.savings?.retry_waste_usd || 0) > (base.savings?.retry_waste_usd || 0)) out.push("retry waste increased");
+    }
+    if (budget && Number.isFinite(budget) && budget > 0) out.push(`budget gate: $${round23(budget)}/mo`);
+    return out.slice(0, 3);
+  }
+  const causes = topCauses();
   const msg = [
     headline,
     `Summary: baseline=$${round23(baseCost)} \u2192 candidate=$${round23(candCost)} (\u0394=$${round23(delta)})`,
+    `Monthly est: baseline=$${round23(baselineMonthly)} \u2192 candidate=$${round23(candidateMonthly)}${budget ? ` (budget=$${round23(budget)})` : ""}`,
     callMult !== 1 ? `Call volume multiplier: x${callMult}` : null,
+    causes.length ? `Top causes: ${causes.join(" | ")}` : null,
     `Impact (monthly est): +$${monthlyRounded}`,
     `Accident risk: ${accidentRiskFromMonthly(monthly)}`,
     `Confidence: ${conf.level} (${reasons})`,
@@ -1510,7 +1543,7 @@ licenseCmd.command("status").option("--path <path>", "license.json path (default
   console.log(`INVALID: ${v.reason || "unknown"}`);
   process.exit(3);
 });
-program.command("guard").description("Pre-deploy guardrail: compare baseline usage vs candidate change (or diff two log sets) and print warnings (exit codes 0/2/3)").option("--input <path>", "baseline usage jsonl/csv (legacy alias for --baseline; default: ./aiopt-output/usage.jsonl)", DEFAULT_INPUT).option("--baseline <path>", "baseline usage jsonl/csv (diff mode when used with --candidate)").option("--candidate <path>", "candidate usage jsonl/csv (diff mode: compare two real log sets)").option("--provider <provider>", "candidate provider override (transform mode only)").option("--model <model>", "candidate model override (transform mode only)").option("--context-mult <n>", "multiply input_tokens by n (transform mode only)", (v) => Number(v)).option("--output-mult <n>", "multiply output_tokens by n (transform mode only)", (v) => Number(v)).option("--retries-delta <n>", "add n to retries (transform mode only)", (v) => Number(v)).option("--call-mult <n>", "multiply call volume by n (traffic spike)", (v) => Number(v)).action(async (opts) => {
+program.command("guard").description("Pre-deploy guardrail: compare baseline usage vs candidate change (or diff two log sets) and print warnings (exit codes 0/2/3)").option("--input <path>", "baseline usage jsonl/csv (legacy alias for --baseline; default: ./aiopt-output/usage.jsonl)", DEFAULT_INPUT).option("--baseline <path>", "baseline usage jsonl/csv (diff mode when used with --candidate)").option("--candidate <path>", "candidate usage jsonl/csv (diff mode: compare two real log sets)").option("--provider <provider>", "candidate provider override (transform mode only)").option("--model <model>", "candidate model override (transform mode only)").option("--context-mult <n>", "multiply input_tokens by n (transform mode only)", (v) => Number(v)).option("--output-mult <n>", "multiply output_tokens by n (transform mode only)", (v) => Number(v)).option("--retries-delta <n>", "add n to retries (transform mode only)", (v) => Number(v)).option("--call-mult <n>", "multiply call volume by n (traffic spike)", (v) => Number(v)).option("--budget-monthly <usd>", "fail if estimated candidate monthly cost exceeds this budget", (v) => Number(v)).action(async (opts) => {
   const rt = loadRateTable();
   const baselinePath = String(opts.baseline || opts.input);
   const candidatePath = opts.candidate ? String(opts.candidate) : null;
@@ -1539,7 +1572,8 @@ program.command("guard").description("Pre-deploy guardrail: compare baseline usa
       contextMultiplier: opts.contextMult,
       outputMultiplier: opts.outputMult,
       retriesDelta: opts.retriesDelta,
-      callMultiplier: opts.callMult
+      callMultiplier: opts.callMult,
+      budgetMonthlyUsd: opts.budgetMonthly
     }
   });
   console.log(r.message);

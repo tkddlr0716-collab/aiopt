@@ -17,6 +17,7 @@ export type GuardInput = {
     outputMultiplier?: number;  // multiplies output_tokens
     retriesDelta?: number;      // adds to retries
     callMultiplier?: number;    // multiplies call volume
+    budgetMonthlyUsd?: number;  // absolute budget gate
   };
 };
 
@@ -36,9 +37,7 @@ function round2(n: number) {
   return Math.round(n * 100) / 100;
 }
 
-function monthEstimate(delta: number, events: UsageEvent[]) {
-  // Convert observed delta (over the sample window) into a monthly estimate.
-  // Prefer timestamp-derived window length for determinism; fall back to 1 day.
+function windowDays(events: UsageEvent[]): number {
   let days = 1;
   try {
     const times = events
@@ -48,12 +47,17 @@ function monthEstimate(delta: number, events: UsageEvent[]) {
     if (times.length >= 2) {
       const spanMs = Math.max(0, times[times.length - 1] - times[0]);
       const spanDays = spanMs / (1000 * 60 * 60 * 24);
-      // If logs cover <1 day (or identical timestamps), treat as 1 day.
       days = Math.max(1, spanDays);
     }
   } catch {
     days = 1;
   }
+  return days;
+}
+
+function monthEstimate(delta: number, events: UsageEvent[]) {
+  // Convert observed delta (over the sample window) into a monthly estimate.
+  const days = windowDays(events);
   return (delta * 30) / days;
 }
 
@@ -189,6 +193,10 @@ export function runGuard(rt: RateTable, input: GuardInput): GuardResult {
 
   const delta = candCost - baseCost;
 
+  const days = windowDays(baselineEvents);
+  const baselineMonthly = (baseCost * 30) / days;
+  const candidateMonthly = (candCost * 30) / days;
+
   const changeConf = input.candidateEvents
     ? ({ level: 'High' as const, reasons: ['actual logs diff (--baseline/--candidate)'] })
     : confidenceFromChange(input.candidate);
@@ -208,12 +216,48 @@ export function runGuard(rt: RateTable, input: GuardInput): GuardResult {
   if (monthly >= 100) { exitCode = 3; headline = 'FAIL: high risk of LLM cost accident'; }
   else if (monthly >= 10) { exitCode = 2; headline = 'WARN: possible LLM cost accident'; }
 
+  // Budget gate: absolute monthly cost ceiling for candidate.
+  const budget = input.candidate.budgetMonthlyUsd;
+  if (budget && Number.isFinite(budget) && budget > 0 && candidateMonthly > budget) {
+    exitCode = 3;
+    headline = 'FAIL: candidate exceeds monthly budget';
+  }
+
   const reasons = conf.reasons.length ? conf.reasons.join(', ') : 'n/a';
+
+  function topCauses(): string[] {
+    const out: string[] = [];
+
+    // transform mode causes
+    if (!input.candidateEvents) {
+      if (callMult !== 1) out.push('traffic spike (call-mult)');
+      if (input.candidate.retriesDelta && input.candidate.retriesDelta !== 0) out.push('retry spike (retries-delta)');
+      if (input.candidate.model || input.candidate.provider) out.push('model/provider change');
+      if (input.candidate.contextMultiplier && input.candidate.contextMultiplier !== 1) out.push('context length change');
+      if (input.candidate.outputMultiplier && input.candidate.outputMultiplier !== 1) out.push('output length change');
+    } else {
+      // diff mode heuristic causes
+      if (candidateEvents.length !== baselineEvents.length) out.push('traffic/call volume changed');
+      const bTop = base.analysis.by_model_top?.[0]?.key;
+      const cTop = cand.analysis.by_model_top?.[0]?.key;
+      if (bTop && cTop && bTop !== cTop) out.push('model mix changed');
+      if ((cand.savings?.retry_waste_usd || 0) > (base.savings?.retry_waste_usd || 0)) out.push('retry waste increased');
+    }
+
+    // budget
+    if (budget && Number.isFinite(budget) && budget > 0) out.push(`budget gate: $${round2(budget)}/mo`);
+
+    return out.slice(0, 3);
+  }
+
+  const causes = topCauses();
 
   const msg = [
     headline,
     `Summary: baseline=$${round2(baseCost)} → candidate=$${round2(candCost)} (Δ=$${round2(delta)})`,
+    `Monthly est: baseline=$${round2(baselineMonthly)} → candidate=$${round2(candidateMonthly)}${budget ? ` (budget=$${round2(budget)})` : ''}`,
     callMult !== 1 ? `Call volume multiplier: x${callMult}` : null,
+    causes.length ? `Top causes: ${causes.join(' | ')}` : null,
     `Impact (monthly est): +$${monthlyRounded}`,
     `Accident risk: ${accidentRiskFromMonthly(monthly)}`,
     `Confidence: ${conf.level} (${reasons})`,

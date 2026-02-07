@@ -55,6 +55,7 @@ function mustContain(out, s) {
   const r = run(['guard', '--input', path.join(__dirname, '..', 'fixtures', 'baseline_calls.jsonl'), '--call-mult', '50']);
   assert(r.code === 2 || r.code === 3, 'expected warn/fail for traffic spike');
   mustContain(r.out, 'Call volume multiplier: x50');
+  mustContain(r.out, 'Top causes:');
 }
 
 // 5) Baseline empty: must still print Confidence + Accident risk and exit 3
