@@ -16,13 +16,19 @@ Exit codes:
 - `2` WARN (cost accident possible)
 - `3` FAIL (merge-blocking)
 
+Common knobs:
+- `--context-mult <n>` (prompt/context grows)
+- `--output-mult <n>` (output grows)
+- `--retries-delta <n>` (more retries/attempts)
+- `--call-mult <n>` (traffic spike / call volume)
+
 CI tip: print guard output into the GitHub Actions **Step Summary** so you don’t need to scroll logs.
 
 ## Product definition (Guardrail)
 AIOpt is a **pre-deploy cost accident guardrail** for LLM changes.
 
 - **Baseline** = your observed usage log (`usage.jsonl` / `usage.csv`)
-- **Candidate** = an estimated change (model/provider/context/output/retry deltas)
+- **Candidate** = an estimated change (model/provider/context/output/retry/traffic deltas)
 - Output = a deterministic verdict + monthly impact estimate + confidence
 - Designed for CI: fast, local, no network calls (beyond downloading the npm package)
 
@@ -50,7 +56,8 @@ Tips:
 - Use the wrapper (`npx aiopt install --force`) to record baseline locally during dev.
 
 AIOpt is a **serverless local Guardrail CLI**.
-- No signup, no upload, no dashboard, no server deployment.
+- No signup, no upload, no product server.
+- Optional local dashboard: `npx aiopt dashboard --port 3010` (binds to 127.0.0.1)
 - Reads local JSONL/CSV → writes local outputs.
 - **No LLM calls** (math + deterministic rules only).
 
@@ -138,11 +145,22 @@ Optional:
 ## Contact
 - Instagram: **@sangikpp**
 
+## License (offline)
+If you have a signed license key:
+```bash
+npx aiopt license activate <LICENSE_KEY>
+npx aiopt license status
+npx aiopt license verify
+```
+
 ## Local dev
 ```bash
 npm i
 npm run build
 node dist/cli.js install --force
 node dist/cli.js doctor
+node dist/cli.js guard --context-mult 1.2 --call-mult 10
+node dist/cli.js dashboard --port 3010
 node dist/cli.js scan
 ```
+

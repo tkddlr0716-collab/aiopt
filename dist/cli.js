@@ -416,7 +416,7 @@ var require_package = __commonJS({
     module2.exports = {
       name: "aiopt",
       version: "0.2.4",
-      description: "Serverless local CLI MVP for AI API cost analysis & cost-policy generation",
+      description: "Pre-deploy LLM cost accident guardrail (serverless local CLI)",
       bin: {
         aiopt: "dist/cli.js"
       },
