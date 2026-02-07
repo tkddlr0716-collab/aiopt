@@ -78,6 +78,8 @@ function mustContain(out, s) {
   mustContain(r.out, 'baseline=$');
   mustContain(r.out, 'candidate=$');
   mustContain(r.out, 'Tokens:');
+  // Diff explain sections
+  mustContain(r.out, '(Δ');
   mustContain(r.out, 'Top model deltas:');
   mustContain(r.out, 'Top feature deltas:');
   mustContain(r.out, 'Confidence:');

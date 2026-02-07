@@ -45,6 +45,7 @@ npx aiopt guard --baseline ./usage-baseline.jsonl --candidate ./usage-candidate.
 ```
 
 Output includes a short **Top causes** summary (1–3) to explain the biggest drivers.
+In diff mode, it also prints **token deltas** and **top cost deltas** by model + feature.
 
 ## CI integration (GitHub Actions)
 You can run `aiopt guard` in CI to catch accidental cost blow-ups before merge.
