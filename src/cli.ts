@@ -249,12 +249,15 @@ program
 
     console.log(r.message);
 
-    // Persist last guard output for local dashboard / CI attachments
+    // Persist last guard output + history for local dashboard / CI attachments
     try {
       const outDir = path.resolve(DEFAULT_OUTPUT_DIR);
       fs.mkdirSync(outDir, { recursive: true });
+      const ts = new Date().toISOString();
       fs.writeFileSync(path.join(outDir, 'guard-last.txt'), r.message);
-      fs.writeFileSync(path.join(outDir, 'guard-last.json'), JSON.stringify({ ts: new Date().toISOString(), exitCode: r.exitCode }, null, 2));
+      fs.writeFileSync(path.join(outDir, 'guard-last.json'), JSON.stringify({ ts, exitCode: r.exitCode }, null, 2));
+      const histLine = JSON.stringify({ ts, exitCode: r.exitCode, mode: candidateEvents ? 'diff' : 'transform', baseline: baselinePath, candidate: candidatePath }) + '\n';
+      fs.appendFileSync(path.join(outDir, 'guard-history.jsonl'), histLine);
     } catch {
       // ignore
     }

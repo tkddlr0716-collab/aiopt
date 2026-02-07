@@ -1285,7 +1285,13 @@ async function startDashboard(cwd, opts) {
           <a href="/api/guard-last.txt" target="_blank">raw txt</a>
           <span class="muted">\xB7</span>
           <a href="/api/guard-last.json" target="_blank">raw json</a>
+          <span class="muted">\xB7</span>
+          <a href="/api/guard-history.jsonl" target="_blank">history</a>
         </div>
+
+        <div style="height:12px"></div>
+        <div style="font-weight:900">Recent guard runs</div>
+        <pre id="guardHist" style="max-height:220px; overflow:auto">loading\u2026</pre>
       </div>
 
       <div class="card c6">
@@ -1298,6 +1304,11 @@ async function startDashboard(cwd, opts) {
           <div class="badge" id="totalCostBadge"><span class="b" style="background:#60a5fa"></span><span id="totalCost">total: \u2014</span></div>
           <div class="badge" id="savingsBadge"><span class="b" style="background:#a78bfa"></span><span id="savings">savings: \u2014</span></div>
         </div>
+
+        <div style="height:12px"></div>
+        <div style="font-weight:900">Cost trend (last 7d)</div>
+        <div class="mini"><a href="/api/usage.jsonl" target="_blank">usage.jsonl</a></div>
+        <pre id="trend">loading\u2026</pre>
 
         <div style="height:12px"></div>
         <div style="font-weight:900">Cost by model</div>
@@ -1361,6 +1372,16 @@ async function load(){
     else {badge.classList.add('fail'); t.textContent='FAIL (3)';}
   }
 
+  const histTxt = await fetch('/api/guard-history.jsonl').then(r=>r.ok?r.text():null);
+  if(histTxt){
+    const lines = histTxt.trim().split('
+').filter(Boolean).slice(-15).reverse();
+    document.getElementById('guardHist').textContent = lines.join('
+');
+  } else {
+    document.getElementById('guardHist').textContent = '(no guard-history.jsonl yet \u2014 run: aiopt guard)';
+  }
+
   const reportJson = await fetch('/api/report.json').then(r=>r.ok?r.json():null);
   if(reportJson){
     const total = reportJson.summary && reportJson.summary.total_cost_usd;
@@ -1372,6 +1393,35 @@ async function load(){
     document.getElementById('scanMeta').textContent = 'confidence=' + (reportJson.confidence || '\u2014') + ' \xB7 generated_at=' + (reportJson.generated_at || '\u2014');
   } else {
     document.getElementById('scanMeta').textContent = '(no report.json yet \u2014 run: aiopt scan)';
+  }
+
+  const usageTxt = await fetch('/api/usage.jsonl').then(r=>r.ok?r.text():null);
+  if(usageTxt){
+    // quick n dirty: count lines per day for last 7 days (visual proxy)
+    const now = Date.now();
+    const bins = Array.from({length:7}, (_,i)=>({ day:i, count:0 }));
+    for(const line of usageTxt.trim().split('
+')){
+      if(!line) continue;
+      try{
+        const ev = JSON.parse(line);
+        const t = Date.parse(ev.ts);
+        if(!Number.isFinite(t)) continue;
+        const d = Math.floor((now - t) / 86400000);
+        if(d>=0 && d<7) bins[d].count++;
+      }catch{}
+    }
+    const max = Math.max(...bins.map(b=>b.count), 1);
+    const rows = bins.reverse().map((b,idx)=>{
+      const w = Math.round((b.count/max)*20);
+      const bar = '\u2588'.repeat(w) + '\u2591'.repeat(20-w);
+      const label = (idx===0 ? 'today' : ('d-'+idx));
+      return String(label).padEnd(7) + ' ' + bar + ' ' + b.count;
+    });
+    document.getElementById('trend').textContent = rows.join('
+');
+  } else {
+    document.getElementById('trend').textContent = '(no usage.jsonl yet)';
   }
 
   const reportMd = await fetch('/api/report.md').then(r=>r.ok?r.text():null);
@@ -1390,7 +1440,7 @@ load();
     }
     if (url.startsWith("/api/")) {
       const name = url.replace("/api/", "");
-      const allow = /* @__PURE__ */ new Set(["guard-last.txt", "guard-last.json", "report.md", "report.json"]);
+      const allow = /* @__PURE__ */ new Set(["guard-last.txt", "guard-last.json", "guard-history.jsonl", "report.md", "report.json", "usage.jsonl"]);
       if (!allow.has(name)) {
         res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
         res.end("not found");
@@ -1687,8 +1737,11 @@ program.command("guard").description("Pre-deploy guardrail: compare baseline usa
   try {
     const outDir = import_path10.default.resolve(DEFAULT_OUTPUT_DIR);
     import_fs10.default.mkdirSync(outDir, { recursive: true });
+    const ts = (/* @__PURE__ */ new Date()).toISOString();
     import_fs10.default.writeFileSync(import_path10.default.join(outDir, "guard-last.txt"), r.message);
-    import_fs10.default.writeFileSync(import_path10.default.join(outDir, "guard-last.json"), JSON.stringify({ ts: (/* @__PURE__ */ new Date()).toISOString(), exitCode: r.exitCode }, null, 2));
+    import_fs10.default.writeFileSync(import_path10.default.join(outDir, "guard-last.json"), JSON.stringify({ ts, exitCode: r.exitCode }, null, 2));
+    const histLine = JSON.stringify({ ts, exitCode: r.exitCode, mode: candidateEvents ? "diff" : "transform", baseline: baselinePath, candidate: candidatePath }) + "\n";
+    import_fs10.default.appendFileSync(import_path10.default.join(outDir, "guard-history.jsonl"), histLine);
   } catch {
   }
   process.exit(r.exitCode);

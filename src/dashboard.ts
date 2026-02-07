@@ -101,7 +101,13 @@ export async function startDashboard(cwd: string, opts: { port: number }) {
           <a href="/api/guard-last.txt" target="_blank">raw txt</a>
           <span class="muted">·</span>
           <a href="/api/guard-last.json" target="_blank">raw json</a>
+          <span class="muted">·</span>
+          <a href="/api/guard-history.jsonl" target="_blank">history</a>
         </div>
+
+        <div style="height:12px"></div>
+        <div style="font-weight:900">Recent guard runs</div>
+        <pre id="guardHist" style="max-height:220px; overflow:auto">loading…</pre>
       </div>
 
       <div class="card c6">
@@ -114,6 +120,11 @@ export async function startDashboard(cwd: string, opts: { port: number }) {
           <div class="badge" id="totalCostBadge"><span class="b" style="background:#60a5fa"></span><span id="totalCost">total: —</span></div>
           <div class="badge" id="savingsBadge"><span class="b" style="background:#a78bfa"></span><span id="savings">savings: —</span></div>
         </div>
+
+        <div style="height:12px"></div>
+        <div style="font-weight:900">Cost trend (last 7d)</div>
+        <div class="mini"><a href="/api/usage.jsonl" target="_blank">usage.jsonl</a></div>
+        <pre id="trend">loading…</pre>
 
         <div style="height:12px"></div>
         <div style="font-weight:900">Cost by model</div>
@@ -177,6 +188,14 @@ async function load(){
     else {badge.classList.add('fail'); t.textContent='FAIL (3)';}
   }
 
+  const histTxt = await fetch('/api/guard-history.jsonl').then(r=>r.ok?r.text():null);
+  if(histTxt){
+    const lines = histTxt.trim().split('\n').filter(Boolean).slice(-15).reverse();
+    document.getElementById('guardHist').textContent = lines.join('\n');
+  } else {
+    document.getElementById('guardHist').textContent = '(no guard-history.jsonl yet — run: aiopt guard)';
+  }
+
   const reportJson = await fetch('/api/report.json').then(r=>r.ok?r.json():null);
   if(reportJson){
     const total = reportJson.summary && reportJson.summary.total_cost_usd;
@@ -188,6 +207,33 @@ async function load(){
     document.getElementById('scanMeta').textContent = 'confidence=' + (reportJson.confidence || '—') + ' · generated_at=' + (reportJson.generated_at || '—');
   } else {
     document.getElementById('scanMeta').textContent = '(no report.json yet — run: aiopt scan)';
+  }
+
+  const usageTxt = await fetch('/api/usage.jsonl').then(r=>r.ok?r.text():null);
+  if(usageTxt){
+    // quick n dirty: count lines per day for last 7 days (visual proxy)
+    const now = Date.now();
+    const bins = Array.from({length:7}, (_,i)=>({ day:i, count:0 }));
+    for(const line of usageTxt.trim().split('\n')){
+      if(!line) continue;
+      try{
+        const ev = JSON.parse(line);
+        const t = Date.parse(ev.ts);
+        if(!Number.isFinite(t)) continue;
+        const d = Math.floor((now - t) / 86400000);
+        if(d>=0 && d<7) bins[d].count++;
+      }catch{}
+    }
+    const max = Math.max(...bins.map(b=>b.count), 1);
+    const rows = bins.reverse().map((b,idx)=>{
+      const w = Math.round((b.count/max)*20);
+      const bar = '█'.repeat(w) + '░'.repeat(20-w);
+      const label = (idx===0 ? 'today' : ('d-'+idx));
+      return String(label).padEnd(7) + ' ' + bar + ' ' + b.count;
+    });
+    document.getElementById('trend').textContent = rows.join('\n');
+  } else {
+    document.getElementById('trend').textContent = '(no usage.jsonl yet)';
   }
 
   const reportMd = await fetch('/api/report.md').then(r=>r.ok?r.text():null);
@@ -208,7 +254,7 @@ load();
 
     if (url.startsWith('/api/')) {
       const name = url.replace('/api/', '');
-      const allow = new Set(['guard-last.txt', 'guard-last.json', 'report.md', 'report.json']);
+      const allow = new Set(['guard-last.txt', 'guard-last.json', 'guard-history.jsonl', 'report.md', 'report.json', 'usage.jsonl']);
       if (!allow.has(name)) {
         res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
         res.end('not found');
