@@ -122,9 +122,12 @@ export async function startDashboard(cwd: string, opts: { port: number }) {
         </div>
 
         <div style="height:12px"></div>
-        <div style="font-weight:900">Cost trend (last 7d)</div>
-        <div class="mini"><a href="/api/usage.jsonl" target="_blank">usage.jsonl</a></div>
-        <pre id="trend">loading…</pre>
+        <div class="row" style="justify-content:space-between">
+          <div style="font-weight:900">Cost trend (last 7d)</div>
+          <div class="mini"><a href="/api/usage.jsonl" target="_blank">usage.jsonl</a></div>
+        </div>
+        <div id="trendSvg" style="margin-top:8px"></div>
+        <pre id="trend" style="margin-top:8px">loading…</pre>
 
         <div style="height:12px"></div>
         <div style="font-weight:900">Cost by model</div>
@@ -191,7 +194,18 @@ async function load(){
   const histTxt = await fetch('/api/guard-history.jsonl').then(r=>r.ok?r.text():null);
   if(histTxt){
     const lines = histTxt.trim().split('\n').filter(Boolean).slice(-15).reverse();
-    document.getElementById('guardHist').textContent = lines.join('\n');
+    const pretty = [];
+    for(const l of lines){
+      try{
+        const j = JSON.parse(l);
+        const code = Number(j.exitCode);
+        const badge = (code===0?'OK':(code===2?'WARN':'FAIL'));
+        const mode = j.mode || '—';
+        const ts = (j.ts || '').replace('T',' ').replace('Z','');
+        pretty.push(badge.padEnd(5) + ' ' + mode.padEnd(9) + ' ' + ts);
+      }catch{pretty.push(l)}
+    }
+    document.getElementById('guardHist').textContent = pretty.join('\n');
   } else {
     document.getElementById('guardHist').textContent = '(no guard-history.jsonl yet — run: aiopt guard)';
   }
@@ -228,17 +242,37 @@ async function load(){
         }
       }catch{}
     }
-    const max = Math.max(...bins.map(b=>b.cost), 0.000001);
-    const rows = bins.reverse().map((b,idx)=>{
-      const w = Math.round((b.cost/max)*20);
-      const bar = '█'.repeat(w) + '░'.repeat(20-w);
-      const label = (idx===0 ? 'today' : ('d-'+idx));
+
+    // SVG sparkline
+    const W=520, H=120, P=12;
+    const pts = bins.slice().reverse();
+    const max = Math.max(...pts.map(b=>b.cost), 0.000001);
+    const xs = pts.map((_,i)=> P + (i*(W-2*P))/6);
+    const ys = pts.map(b=> H-P - ((b.cost/max)*(H-2*P)) );
+    let d = '';
+    for(let i=0;i<xs.length;i++) d += (i===0?'M':'L') + xs[i].toFixed(1)+','+ys[i].toFixed(1)+' ';
+    const area = 'M'+xs[0].toFixed(1)+','+(H-P).toFixed(1)+' ' + d + 'L'+xs[xs.length-1].toFixed(1)+','+(H-P).toFixed(1)+' Z';
+
+    const circles = xs.map((x,i)=>'<circle cx="'+x.toFixed(1)+'" cy="'+ys[i].toFixed(1)+'" r="2.6" fill="rgba(52,211,153,.9)"/>').join('');
+    const svg =
+      '<svg viewBox="0 0 '+W+' '+H+'" width="100%" height="'+H+'" xmlns="http://www.w3.org/2000/svg" style="background:rgba(255,255,255,.02); border:1px solid rgba(255,255,255,.10); border-radius:14px">'+
+        '<path d="'+area+'" fill="rgba(96,165,250,.12)" />'+
+        '<path d="'+d+'" fill="none" stroke="rgba(96,165,250,.95)" stroke-width="2" />'+
+        circles+
+        '<text x="'+P+'" y="'+(P+10)+'" fill="rgba(229,231,235,.75)" font-size="11">max '+money(max)+'</text>'+
+      '</svg>';
+    document.getElementById('trendSvg').innerHTML = svg;
+
+    // Text fallback/detail
+    const rows = pts.map((b,idx)=>{
+      const label = (idx===pts.length-1 ? 'd-6' : (idx===0 ? 'today' : ('d-'+idx)));
       const dollars = ('$' + (Math.round(b.cost*100)/100).toFixed(2));
-      return String(label).padEnd(7) + ' ' + bar + ' ' + String(dollars).padStart(9) + '  (' + b.calls + ' calls)';
+      return String(label).padEnd(7) + ' ' + String(dollars).padStart(9) + '  (' + b.calls + ' calls)';
     });
     document.getElementById('trend').textContent = rows.join('\n');
   } else {
     document.getElementById('trend').textContent = '(no usage.jsonl yet)';
+    document.getElementById('trendSvg').innerHTML = '';
   }
 
   const reportMd = await fetch('/api/report.md').then(r=>r.ok?r.text():null);
