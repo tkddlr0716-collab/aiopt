@@ -59,11 +59,11 @@ program
     const rt = loadRateTable();
     const events = isCsvPath(inputPath) ? readCsv(inputPath) : readJsonl(inputPath);
 
-    const { analysis, savings, policy } = analyze(rt, events);
+    const { analysis, savings, policy, meta } = analyze(rt, events);
     // For reproducibility: embed input path & rate table meta
     policy.generated_from.input = inputPath;
 
-    writeOutputs(outDir, analysis, savings, policy);
+    writeOutputs(outDir, analysis, savings, policy, meta);
 
     // Console: Top Fix 3 (T3 DoD)
     console.log('Top Fix 3:');

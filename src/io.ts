@@ -55,7 +55,12 @@ function normalizeEvent(x: any): UsageEvent {
     feature_tag: String(featureTag ?? ''),
     retries: toNum(retries),
     status: String(x.status ?? ''),
-    billed_cost: billed === undefined || billed === '' ? undefined : toNum(billed)
+    billed_cost: billed === undefined || billed === '' ? undefined : toNum(billed),
+
+    trace_id: x.trace_id ? String(x.trace_id) : undefined,
+    request_id: x.request_id ? String(x.request_id) : undefined,
+    attempt: x.attempt === undefined ? undefined : toNum(x.attempt),
+    endpoint: x.endpoint ? String(x.endpoint) : undefined
   };
 }
 

@@ -448,7 +448,11 @@ function normalizeEvent(x) {
     feature_tag: String(featureTag ?? ""),
     retries: toNum(retries),
     status: String(x.status ?? ""),
-    billed_cost: billed === void 0 || billed === "" ? void 0 : toNum(billed)
+    billed_cost: billed === void 0 || billed === "" ? void 0 : toNum(billed),
+    trace_id: x.trace_id ? String(x.trace_id) : void 0,
+    request_id: x.request_id ? String(x.request_id) : void 0,
+    attempt: x.attempt === void 0 ? void 0 : toNum(x.attempt),
+    endpoint: x.endpoint ? String(x.endpoint) : void 0
   };
 }
 function isCsvPath(p) {
@@ -569,14 +573,18 @@ function analyze(rt, events) {
   const byFeature = /* @__PURE__ */ new Map();
   const unknownModels = [];
   const perEventCosts = [];
+  const isAttemptLog = events.some((e) => e.trace_id && String(e.trace_id).length > 0 || e.attempt !== void 0 && Number(e.attempt) > 0);
   let baseTotal = 0;
   let total = 0;
   for (const ev of events) {
     const cr = costOfEvent(rt, ev);
-    const retries = Math.max(0, Number(ev.retries || 0));
-    const costWithRetries = cr.cost * (1 + retries);
     baseTotal += cr.cost;
-    total += costWithRetries;
+    if (isAttemptLog) {
+      total += cr.cost;
+    } else {
+      const retries = Math.max(0, Number(ev.retries || 0));
+      total += cr.cost * (1 + retries);
+    }
     perEventCosts.push({ ev, cost: cr.cost });
     const mk = `${ev.provider}:${ev.model}`;
     const fk = ev.feature_tag || "(none)";
@@ -598,8 +606,9 @@ function analyze(rt, events) {
   const potByIdx = [];
   for (const { ev, cost } of perEventCosts) {
     const retries = Math.max(0, Number(ev.retries || 0));
-    const total_i = cost * (1 + retries);
-    const waste_i = cost * retries;
+    const attempt = Number(ev.attempt || 1);
+    const total_i = isAttemptLog ? cost : cost * (1 + retries);
+    const waste_i = isAttemptLog ? attempt >= 2 ? cost : 0 : cost * retries;
     let routing_i = 0;
     if (ROUTE_TO_CHEAP_FEATURES.has(String(ev.feature_tag || "").toLowerCase())) {
       const provider = ev.provider;
@@ -620,7 +629,7 @@ function analyze(rt, events) {
     }
     potByIdx.push({ routing: routing_i, context: 0, retry: waste_i, total: total_i, waste: waste_i });
   }
-  const sortedIdx = [...events.map((e, i) => ({ i, input: Number(e.input_tokens || 0) }))].sort((a, b) => b.input - a.input);
+  const sortedIdx = [...events.map((e, i) => ({ i, input: Number(e.input_tokens || 0), ok: !isAttemptLog || Number(e.attempt || 1) === 1 }))].filter((x) => x.ok).sort((a, b) => b.input - a.input);
   const k = Math.max(1, Math.floor(sortedIdx.length * 0.2));
   const topIdx = new Set(sortedIdx.slice(0, k).map((x) => x.i));
   for (let i = 0; i < events.length; i++) {
@@ -630,7 +639,8 @@ function analyze(rt, events) {
     const r = getRates(rt, ev.provider, ev.model);
     if (!r) continue;
     const saveTokens = Number(ev.input_tokens || 0) * 0.25;
-    const diff = saveTokens / 1e6 * r.input * (1 + retries);
+    const multiplier = isAttemptLog ? 1 : 1 + retries;
+    const diff = saveTokens / 1e6 * r.input * multiplier;
     potByIdx[i].context = Math.max(0, diff);
   }
   let routingSavings = 0;
@@ -669,7 +679,7 @@ function analyze(rt, events) {
     ]
   };
   const policy = buildPolicy(rt, events);
-  return { analysis, savings, policy };
+  return { analysis, savings, policy, meta: { mode: isAttemptLog ? "attempt-log" : "legacy" } };
 }
 function buildPolicy(rt, events) {
   const freq = /* @__PURE__ */ new Map();
@@ -709,7 +719,8 @@ function uniqUnknown(list) {
 function round2(n) {
   return Math.round(n * 100) / 100;
 }
-function writeOutputs(outDir, analysis, savings, policy) {
+function writeOutputs(outDir, analysis, savings, policy, meta) {
+  const mode = meta?.mode || "legacy";
   import_fs3.default.mkdirSync(outDir, { recursive: true });
   import_fs3.default.writeFileSync(import_path3.default.join(outDir, "analysis.json"), JSON.stringify(analysis, null, 2));
   const unknownCount = analysis.unknown_models?.length || 0;
@@ -724,7 +735,7 @@ function writeOutputs(outDir, analysis, savings, policy) {
     warnings,
     assumptions: {
       no_double_counting: "routing -> context -> retry allocation per-event with remaining-cost caps",
-      retry_cost_model: "total_cost includes retries as extra attempts (base_cost*(1+retries))",
+      retry_cost_model: mode === "attempt-log" ? "attempt-log mode: total_cost is sum of attempt lines; retry_waste is sum of attempts>=2" : "legacy mode: total_cost includes retries as extra attempts (base_cost*(1+retries))",
       context_model: "top 20% by input_tokens assume 25% input reduction"
     },
     summary: {
@@ -756,7 +767,7 @@ function writeOutputs(outDir, analysis, savings, policy) {
     "",
     "## ASSUMPTIONS",
     "- No double-counting: routing \u2192 context \u2192 retry savings allocated per-event with remaining-cost caps.",
-    "- Retry cost model: total_cost includes retries as extra attempts (base_cost * (1 + retries)).",
+    mode === "attempt-log" ? "- Retry cost model: attempt-log mode (total_cost=sum attempts, retry_waste=sum attempt>=2)." : "- Retry cost model: legacy mode (total_cost=base_cost*(1+retries)).",
     "- Context savings: top 20% input_tokens events assume 25% input reduction.",
     "",
     "## WHAT TO CHANGE",
@@ -817,9 +828,9 @@ program.command("scan").description("\uC785\uB825 \uB85C\uADF8(JSONL/CSV)\uB97C 
   }
   const rt = loadRateTable();
   const events = isCsvPath(inputPath) ? readCsv(inputPath) : readJsonl(inputPath);
-  const { analysis, savings, policy } = analyze(rt, events);
+  const { analysis, savings, policy, meta } = analyze(rt, events);
   policy.generated_from.input = inputPath;
-  writeOutputs(outDir, analysis, savings, policy);
+  writeOutputs(outDir, analysis, savings, policy, meta);
   console.log("Top Fix 3:");
   console.log("1) Retry tuning (aiopt/policies/retry.json)");
   console.log("2) Output cap (aiopt/policies/output.json)");

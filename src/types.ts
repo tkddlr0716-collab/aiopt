@@ -8,6 +8,12 @@ export type UsageEvent = {
   retries: number;
   status: string;
   billed_cost?: number;
+
+  // wrapper usage schema (optional)
+  trace_id?: string;
+  request_id?: string;
+  attempt?: number;
+  endpoint?: string;
 };
 
 export type RateTable = {
