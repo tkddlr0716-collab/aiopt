@@ -16,6 +16,8 @@ Exit codes:
 - `2` WARN (cost accident possible)
 - `3` FAIL (merge-blocking)
 
+CI tip: print guard output into the GitHub Actions **Step Summary** so you don’t need to scroll logs.
+
 ## Product definition (Guardrail)
 AIOpt is a **pre-deploy cost accident guardrail** for LLM changes.
 

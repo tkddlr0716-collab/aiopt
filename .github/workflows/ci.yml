@@ -38,13 +38,26 @@ jobs:
         working-directory: .ci-smoke
 
       # guardrail (exit codes 0/2/3)
-      - name: Guard (non-blocking example)
+      - name: Guard (non-blocking example + summary)
         working-directory: .ci-smoke
         run: |
           set +e
-          node ../dist/cli.js guard --input ./aiopt-output/usage.jsonl --context-mult 1.2
+          out=$(node ../dist/cli.js guard --input ./aiopt-output/usage.jsonl --context-mult 1.2)
           code=$?
+
           echo "guard_exit=$code"
+
+          echo "## AIOpt Guardrail" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$code" = "0" ]; then
+            echo "✅ OK" >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$code" = "2" ]; then
+            echo "⚠️ WARN" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "🛑 FAIL" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "\n\`\`\`\n$out\n\`\`\`\n" >> "$GITHUB_STEP_SUMMARY"
+
+          # allow 0 or 2 here
           test "$code" = "0" -o "$code" = "2"
 
       - name: Guard tests (fixtures)
