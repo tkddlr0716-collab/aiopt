@@ -1,0 +1,5 @@
+{"ts":"2026-02-07T00:00:01Z","provider":"openai","model":"gpt-5-mini","input_tokens":12000,"output_tokens":1800,"feature_tag":"summarize","retries":0,"status":"ok"}
+{"ts":"2026-02-07T00:00:02Z","provider":"anthropic","model":"claude-sonnet","input_tokens":22000,"output_tokens":2500,"feature_tag":"classify","retries":1,"status":"ok"}
+{"ts":"2026-02-07T00:00:03Z","provider":"gemini","model":"gemini-1.5-flash","input_tokens":9000,"output_tokens":1200,"feature_tag":"translate","retries":0,"status":"ok"}
+{"ts":"2026-02-07T00:00:04Z","provider":"local","model":"llama3.1","input_tokens":15000,"output_tokens":1500,"feature_tag":"summarize","retries":0,"status":"ok"}
+{"ts":"2026-02-07T00:00:05Z","provider":"unknownprov","model":"x1","input_tokens":8000,"output_tokens":1000,"feature_tag":"coding","retries":0,"status":"ok"}

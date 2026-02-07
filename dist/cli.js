@@ -465,7 +465,11 @@ var import_path3 = __toESM(require("path"));
 
 // src/cost.ts
 function getRates(rt, provider, model) {
-  const p = rt.providers[provider];
+  const prov = String(provider || "").toLowerCase();
+  if (prov === "local" || prov === "ollama" || prov === "vllm") {
+    return { kind: "official", input: 0, output: 0 };
+  }
+  const p = rt.providers[prov];
   if (!p) return null;
   const m = p.models[model];
   if (m) return { kind: "official", input: m.input, output: m.output };
@@ -491,7 +495,7 @@ function costOfEvent(rt, ev) {
     const cost2 = ev.input_tokens / 1e6 * input_per_m + ev.output_tokens / 1e6 * output_per_m;
     return {
       cost: cost2,
-      used_rate: { kind: "estimated", provider: ev.provider, model: ev.model, input_per_m, output_per_m }
+      used_rate: { kind: "estimated", provider: String(ev.provider || "").toLowerCase(), model: ev.model, input_per_m, output_per_m }
     };
   }
   const cost = ev.input_tokens / 1e6 * r.input + ev.output_tokens / 1e6 * r.output;
@@ -724,10 +728,11 @@ function writeOutputs(outDir, analysis, savings, policy, meta) {
   import_fs3.default.mkdirSync(outDir, { recursive: true });
   import_fs3.default.writeFileSync(import_path3.default.join(outDir, "analysis.json"), JSON.stringify(analysis, null, 2));
   const unknownCount = analysis.unknown_models?.length || 0;
-  const confidence = unknownCount > 0 ? "LOW" : "MED";
+  const confidence = unknownCount === 0 ? "HIGH" : unknownCount <= 3 ? "MED" : "LOW";
   const ratio = analysis.total_cost > 0 ? savings.estimated_savings_total / analysis.total_cost : 0;
   const warnings = [];
   if (ratio >= 0.9) warnings.push("estimated savings >= 90%");
+  if (unknownCount > 0) warnings.push("unknown models/providers detected (estimated pricing used)");
   const reportJson = {
     version: 3,
     generated_at: (/* @__PURE__ */ new Date()).toISOString(),
@@ -736,7 +741,8 @@ function writeOutputs(outDir, analysis, savings, policy, meta) {
     assumptions: {
       no_double_counting: "routing -> context -> retry allocation per-event with remaining-cost caps",
       retry_cost_model: mode === "attempt-log" ? "attempt-log mode: total_cost is sum of attempt lines; retry_waste is sum of attempts>=2" : "legacy mode: total_cost includes retries as extra attempts (base_cost*(1+retries))",
-      context_model: "top 20% by input_tokens assume 25% input reduction"
+      context_model: "top 20% by input_tokens assume 25% input reduction",
+      estimated_pricing_note: unknownCount > 0 ? "some items use estimated rates; treat savings as a band" : "all items used known rates"
     },
     summary: {
       total_cost_usd: analysis.total_cost,

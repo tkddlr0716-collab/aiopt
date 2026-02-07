@@ -66,7 +66,8 @@ c) 재시도/오류 낭비: $0.13 (retries 기반)
 
 ## Rate table
 - `./rates/rate_table.json`
-- Unknown models are marked as `Estimated` and listed in `unknown_models`.
+- Unknown models/providers are marked as `Estimated` and listed in `unknown_models`.
+- `provider=local` (or `ollama`/`vllm`) is treated as **$0** by default (CPU/GPU cost not included).
 
 ## Contact
 - Instagram: **@sangikpp**

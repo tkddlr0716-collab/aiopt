@@ -12,7 +12,14 @@ export type CostResult = {
 };
 
 export function getRates(rt: RateTable, provider: string, model: string) {
-  const p = rt.providers[provider];
+  const prov = String(provider || '').toLowerCase();
+
+  // local/offline LLM: treat cost as 0 (or user can add a provider rate later)
+  if (prov === 'local' || prov === 'ollama' || prov === 'vllm') {
+    return { kind: 'official' as const, input: 0, output: 0 };
+  }
+
+  const p = rt.providers[prov];
   if (!p) return null;
   const m = p.models[model];
   if (m) return { kind: 'official' as const, input: m.input, output: m.output };
@@ -35,13 +42,13 @@ export function costOfEvent(rt: RateTable, ev: UsageEvent): CostResult {
 
   const r = getRates(rt, ev.provider, ev.model);
   if (!r) {
-    // Unknown provider: deterministic fallback estimate
+    // Unknown provider: deterministic fallback estimate (kept stable for reproducibility)
     const input_per_m = 1.0;
     const output_per_m = 4.0;
     const cost = (ev.input_tokens / 1e6) * input_per_m + (ev.output_tokens / 1e6) * output_per_m;
     return {
       cost,
-      used_rate: { kind: 'estimated', provider: ev.provider, model: ev.model, input_per_m, output_per_m }
+      used_rate: { kind: 'estimated', provider: String(ev.provider || '').toLowerCase(), model: ev.model, input_per_m, output_per_m }
     };
   }
 

@@ -254,10 +254,12 @@ export function writeOutputs(outDir: string, analysis: AnalysisJson, savings: Sa
 
   // report.json is the “one file to parse” summary for downstream tooling.
   const unknownCount = analysis.unknown_models?.length || 0;
-  const confidence = unknownCount > 0 ? 'LOW' : 'MED';
+  // confidence: downgrade if many unknowns; keep deterministic
+  const confidence = unknownCount === 0 ? 'HIGH' : (unknownCount <= 3 ? 'MED' : 'LOW');
   const ratio = analysis.total_cost > 0 ? (savings.estimated_savings_total / analysis.total_cost) : 0;
   const warnings: string[] = [];
   if (ratio >= 0.9) warnings.push('estimated savings >= 90%');
+  if (unknownCount > 0) warnings.push('unknown models/providers detected (estimated pricing used)');
 
   const reportJson = {
     version: 3,
@@ -269,7 +271,8 @@ export function writeOutputs(outDir: string, analysis: AnalysisJson, savings: Sa
       retry_cost_model: mode === 'attempt-log'
         ? 'attempt-log mode: total_cost is sum of attempt lines; retry_waste is sum of attempts>=2'
         : 'legacy mode: total_cost includes retries as extra attempts (base_cost*(1+retries))',
-      context_model: 'top 20% by input_tokens assume 25% input reduction'
+      context_model: 'top 20% by input_tokens assume 25% input reduction',
+      estimated_pricing_note: unknownCount > 0 ? 'some items use estimated rates; treat savings as a band' : 'all items used known rates'
     },
     summary: {
       total_cost_usd: analysis.total_cost,
