@@ -29,6 +29,7 @@ function mustContain(out, s) {
   const r = run(['guard', '--input', path.join(__dirname, '..', 'fixtures', 'baseline_small.jsonl'), '--context-mult', '1.05']);
   assert([0,2,3].includes(r.code), 'exit code must be 0/2/3');
   mustContain(r.out, 'Impact (monthly est):');
+  mustContain(r.out, 'Accident risk:');
   mustContain(r.out, 'Confidence:');
 }
 
@@ -36,6 +37,7 @@ function mustContain(out, s) {
 {
   const r = run(['guard', '--input', path.join(__dirname, '..', 'fixtures', 'baseline_big.jsonl'), '--model', 'gpt-5.2', '--context-mult', '5']);
   assert(r.code === 2 || r.code === 3, 'expected warn/fail for expensive model+context upgrade');
+  mustContain(r.out, 'Accident risk:');
   mustContain(r.out, 'Confidence: Medium');
 }
 
@@ -43,7 +45,17 @@ function mustContain(out, s) {
 {
   const r = run(['guard', '--input', path.join(__dirname, '..', 'fixtures', 'baseline_big.jsonl'), '--retries-delta', '25']);
   assert(r.code === 3 || r.code === 2, 'expected warn/fail for retries spike');
+  mustContain(r.out, 'Accident risk:');
   mustContain(r.out, 'Confidence: High');
+}
+
+// 4) Baseline empty: must still print Confidence + Accident risk and exit 3
+{
+  const r = run(['guard', '--input', path.join(__dirname, '..', 'fixtures', 'baseline_empty.jsonl')]);
+  assert(r.code === 3, 'expected exit 3 for empty baseline');
+  mustContain(r.out, 'baseline usage is empty');
+  mustContain(r.out, 'Accident risk:');
+  mustContain(r.out, 'Confidence: Low');
 }
 
 console.log('guard_tests_ok');

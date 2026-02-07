@@ -849,6 +849,12 @@ var guard_exports = {};
 __export(guard_exports, {
   runGuard: () => runGuard
 });
+function accidentRiskFromMonthly(monthly) {
+  if (!Number.isFinite(monthly)) return "Medium";
+  if (monthly >= 100) return "High";
+  if (monthly >= 10) return "Medium";
+  return "Low";
+}
 function round23(n) {
   return Math.round(n * 100) / 100;
 }
@@ -897,7 +903,15 @@ function confidenceFromChange(cand) {
 }
 function runGuard(rt, input) {
   if (!input.baselineEvents || input.baselineEvents.length === 0) {
-    return { exitCode: 3, message: "FAIL: baseline usage is empty (need aiopt-output/usage.jsonl)" };
+    const conf2 = { level: "Low", reasons: ["baseline empty"] };
+    const msg2 = [
+      "FAIL: baseline usage is empty (need aiopt-output/usage.jsonl)",
+      "Impact (monthly est): +$0 (insufficient baseline)",
+      `Accident risk: ${accidentRiskFromMonthly(100)}`,
+      `Confidence: ${conf2.level} (${conf2.reasons.length ? conf2.reasons.join(", ") : "baseline empty"})`,
+      "Recommendation: run the wrapper to collect baseline usage before using guard."
+    ].join("\n");
+    return { exitCode: 3, message: msg2 };
   }
   const baselineEvents = input.baselineEvents.map((e) => ({ ...e, billed_cost: void 0 }));
   const base = analyze(rt, baselineEvents);
@@ -927,6 +941,7 @@ function runGuard(rt, input) {
     headline,
     `Summary: baseline=$${round23(baseCost)} \u2192 candidate=$${round23(candCost)} (\u0394=$${round23(delta)})`,
     `Impact (monthly est): +$${monthlyRounded}`,
+    `Accident risk: ${accidentRiskFromMonthly(monthly)}`,
     `Confidence: ${conf.level} (${reasons})`,
     "Recommendation: review model/provider/retry/context changes before deploy."
   ].join("\n");

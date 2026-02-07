@@ -17,6 +17,13 @@ export type GuardResult = {
   message: string;
 };
 
+function accidentRiskFromMonthly(monthly: number): 'Low' | 'Medium' | 'High' {
+  if (!Number.isFinite(monthly)) return 'Medium';
+  if (monthly >= 100) return 'High';
+  if (monthly >= 10) return 'Medium';
+  return 'Low';
+}
+
 function round2(n: number) {
   return Math.round(n * 100) / 100;
 }
@@ -82,7 +89,15 @@ function confidenceFromChange(cand: GuardInput['candidate']): { level: 'High'|'M
 
 export function runGuard(rt: RateTable, input: GuardInput): GuardResult {
   if (!input.baselineEvents || input.baselineEvents.length === 0) {
-    return { exitCode: 3, message: 'FAIL: baseline usage is empty (need aiopt-output/usage.jsonl)'};
+    const conf = { level: 'Low' as const, reasons: ['baseline empty'] };
+    const msg = [
+      'FAIL: baseline usage is empty (need aiopt-output/usage.jsonl)',
+      'Impact (monthly est): +$0 (insufficient baseline)',
+      `Accident risk: ${accidentRiskFromMonthly(100)}`,
+      `Confidence: ${conf.level} (${(conf.reasons.length ? conf.reasons.join(', ') : 'baseline empty')})`,
+      'Recommendation: run the wrapper to collect baseline usage before using guard.'
+    ].join('\n');
+    return { exitCode: 3, message: msg };
   }
 
   // For fair comparison, ignore billed_cost/cost_usd and recompute both sides from rate table.
@@ -123,6 +138,7 @@ export function runGuard(rt: RateTable, input: GuardInput): GuardResult {
     headline,
     `Summary: baseline=$${round2(baseCost)} → candidate=$${round2(candCost)} (Δ=$${round2(delta)})`,
     `Impact (monthly est): +$${monthlyRounded}`,
+    `Accident risk: ${accidentRiskFromMonthly(monthly)}`,
     `Confidence: ${conf.level} (${reasons})`,
     'Recommendation: review model/provider/retry/context changes before deploy.'
   ].join('\n');
