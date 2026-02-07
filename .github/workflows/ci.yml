@@ -36,3 +36,17 @@ jobs:
         working-directory: .ci-smoke
       - run: test -f ./aiopt-output/patches/policies.updated.retry.json
         working-directory: .ci-smoke
+
+      # guardrail (exit codes 0/2/3)
+      - name: Guard (non-blocking example)
+        working-directory: .ci-smoke
+        run: |
+          set +e
+          node ../dist/cli.js guard --input ./aiopt-output/usage.jsonl --context-mult 1.2
+          code=$?
+          echo "guard_exit=$code"
+          test "$code" = "0" -o "$code" = "2"
+
+      - name: Guard tests (fixtures)
+        run: npm run test:guard
+

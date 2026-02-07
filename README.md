@@ -1,17 +1,22 @@
-# AIOpt — install-first LLM cost guardrails (local-only)
+# AIOpt — pre-deploy LLM cost accident guardrail (local-only)
 
 [![npm](https://img.shields.io/npm/v/aiopt)](https://www.npmjs.com/package/aiopt)
 [![ci](https://github.com/tkddlr0716-collab/aiopt/actions/workflows/ci.yml/badge.svg)](https://github.com/tkddlr0716-collab/aiopt/actions/workflows/ci.yml)
 [![license](https://img.shields.io/npm/l/aiopt)](./LICENSE)
 
-**3-line quickstart (5 minutes)**
+**3-line quickstart (Guardrail mode)**
 ```bash
 npx aiopt install --force
-npx aiopt doctor
-npx aiopt scan
+# baseline: your existing usage log
+npx aiopt guard --context-mult 1.2
 ```
 
-AIOpt is a **serverless local CLI**.
+Exit codes:
+- `0` OK
+- `2` WARN (cost accident possible)
+- `3` FAIL (merge-blocking)
+
+AIOpt is a **serverless local Guardrail CLI**.
 - No signup, no upload, no dashboard, no server deployment.
 - Reads local JSONL/CSV → writes local outputs.
 - **No LLM calls** (math + deterministic rules only).

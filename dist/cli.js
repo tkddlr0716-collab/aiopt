@@ -432,7 +432,8 @@ var require_package = __commonJS({
         build: "tsup",
         dev: "node --enable-source-maps dist/cli.js",
         prepack: "npm run build",
-        "test:npx": `npm pack --silent && node -e "const fs=require('fs');const p=fs.readdirSync('.').find(f=>/^aiopt-.*\\.tgz$/.test(f)); if(!p) throw new Error('tgz not found'); console.log('tgz',p);" && npx --yes ./$(ls -1 aiopt-*.tgz | tail -n 1) init && npx --yes ./$(ls -1 aiopt-*.tgz | tail -n 1) scan --input ./aiopt-input/usage.jsonl && test -f ./aiopt-output/report.txt && echo OK`
+        "test:npx": `npm pack --silent && node -e "const fs=require('fs');const p=fs.readdirSync('.').find(f=>/^aiopt-.*\\.tgz$/.test(f)); if(!p) throw new Error('tgz not found'); console.log('tgz',p);" && npx --yes ./$(ls -1 aiopt-*.tgz | tail -n 1) install --force && npx --yes ./$(ls -1 aiopt-*.tgz | tail -n 1) doctor && npx --yes ./$(ls -1 aiopt-*.tgz | tail -n 1) scan && test -f ./aiopt-output/report.md && echo OK`,
+        "test:guard": "npm run build --silent && node scripts/test-guard.js"
       },
       dependencies: {
         commander: "^14.0.0",
@@ -903,7 +904,11 @@ function runGuard(rt, input) {
   const candidateEvents = applyCandidate(baselineEvents, input.candidate);
   const cand = analyze(rt, candidateEvents);
   const baseCost = base.analysis.total_cost;
-  const candCost = cand.analysis.total_cost;
+  let candCost = cand.analysis.total_cost;
+  const attemptLog = baselineEvents.some((e) => e.trace_id && String(e.trace_id).length > 0 || e.attempt !== void 0 && Number(e.attempt) > 0);
+  if (attemptLog && input.candidate.retriesDelta && input.candidate.retriesDelta > 0) {
+    candCost += baseCost * input.candidate.retriesDelta;
+  }
   const delta = candCost - baseCost;
   const conf = confidenceFromChange(input.candidate);
   const monthly = monthEstimate(Math.max(0, delta), baselineEvents);

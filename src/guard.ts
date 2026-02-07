@@ -92,7 +92,15 @@ export function runGuard(rt: RateTable, input: GuardInput): GuardResult {
   const cand = analyze(rt, candidateEvents);
 
   const baseCost = base.analysis.total_cost;
-  const candCost = cand.analysis.total_cost;
+  let candCost = cand.analysis.total_cost;
+
+  // attempt-log baseline: retriesDelta should be interpreted as "extra attempts".
+  const attemptLog = baselineEvents.some(e => (e.trace_id && String(e.trace_id).length > 0) || (e.attempt !== undefined && Number(e.attempt) > 0));
+  if (attemptLog && input.candidate.retriesDelta && input.candidate.retriesDelta > 0) {
+    // deterministic approximation: each +1 retry adds one more attempt at baseline cost.
+    candCost += baseCost * input.candidate.retriesDelta;
+  }
+
   const delta = candCost - baseCost;
 
   const conf = confidenceFromChange(input.candidate);
