@@ -47,7 +47,7 @@ program
   .description('입력 로그(JSONL/CSV)를 분석하고 report.md/report.json + patches까지 생성')
   .option('--input <path>', 'input file path (default: ./aiopt-output/usage.jsonl)', DEFAULT_INPUT)
   .option('--out <dir>', 'output dir (default: ./aiopt-output)', DEFAULT_OUTPUT_DIR)
-  .action((opts) => {
+  .action(async (opts) => {
     const inputPath = String(opts.input);
     const outDir = String(opts.out);
 
@@ -65,11 +65,15 @@ program
 
     writeOutputs(outDir, analysis, savings, policy, meta);
 
-    // Console: Top Fix 3 (T3 DoD)
+    // Console: Top Fix 3 (data-driven)
+    const { buildTopFixes } = await import('./solutions');
+    const fixes = buildTopFixes(analysis, savings).slice(0, 3);
+
     console.log('Top Fix 3:');
-    console.log('1) Retry tuning (aiopt/policies/retry.json)');
-    console.log('2) Output cap (aiopt/policies/output.json)');
-    console.log('3) Routing rule (aiopt/policies/routing.json)');
+    fixes.forEach((f, i) => {
+      const tag = f.status === 'no-issue' ? '(no issue detected)' : `($${Math.round(f.impact_usd * 100) / 100})`;
+      console.log(`${i + 1}) ${f.title} ${tag}`);
+    });
     console.log(`Report: ${path.join(outDir, 'report.md')}`);
   });
 

@@ -30,6 +30,84 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
+// src/solutions.ts
+var solutions_exports = {};
+__export(solutions_exports, {
+  buildTopFixes: () => buildTopFixes,
+  writePatches: () => writePatches
+});
+function buildTopFixes(analysis, savings) {
+  const fixes = [];
+  fixes.push({
+    id: "fix-retry-tuning",
+    title: "Retry tuning",
+    impact_usd: Number(savings.retry_waste || 0),
+    status: Number(savings.retry_waste || 0) > EPS ? "action" : "no-issue",
+    why: `Retry waste is estimated at $${round2(Number(savings.retry_waste || 0))}.`,
+    what_to_change: [
+      "aiopt/policies/retry.json: lower max_attempts or adjust backoff_ms",
+      "Ensure idempotency keys are stable per trace_id",
+      "Log error_code to identify retryable classes"
+    ]
+  });
+  fixes.push({
+    id: "fix-output-cap",
+    title: "Output cap",
+    impact_usd: Number(savings.context_savings || 0),
+    status: Number(savings.context_savings || 0) > EPS ? "action" : "no-issue",
+    why: `Context savings estimate: $${round2(Number(savings.context_savings || 0))}. Output caps prevent runaway completions.`,
+    what_to_change: [
+      "aiopt/policies/output.json: set max_output_tokens_default",
+      "aiopt/policies/output.json: set per_feature caps (summarize/classify/translate)"
+    ]
+  });
+  const topFeature = analysis.by_feature_top?.[0]?.key;
+  fixes.push({
+    id: "fix-routing",
+    title: "Routing rule",
+    impact_usd: Number(savings.routing_savings || 0),
+    status: Number(savings.routing_savings || 0) > EPS ? "action" : "no-issue",
+    why: `Routing savings estimate: $${round2(Number(savings.routing_savings || 0))}.`,
+    what_to_change: [
+      "aiopt/policies/routing.json: route summarize/classify/translate to cheap tier",
+      `Consider adding feature_tag_in for top feature: ${topFeature || "(unknown)"}`
+    ]
+  });
+  fixes.sort((a, b) => b.impact_usd - a.impact_usd || a.id.localeCompare(b.id));
+  return fixes;
+}
+function round2(n) {
+  return Math.round(n * 100) / 100;
+}
+function writePatches(outDir, fixes) {
+  const patchesDir = import_path2.default.join(outDir, "patches");
+  import_fs2.default.mkdirSync(patchesDir, { recursive: true });
+  const readme = [
+    "# AIOpt patches (MVP)",
+    "",
+    "This folder contains suggested changes you can apply locally.",
+    "",
+    "## Top fixes",
+    ...fixes.map((f, i) => `${i + 1}. ${f.title} \u2014 ${f.why}`),
+    "",
+    "Files are stubs (human review required).",
+    ""
+  ].join("\n");
+  import_fs2.default.writeFileSync(import_path2.default.join(patchesDir, "README.md"), readme);
+  import_fs2.default.writeFileSync(import_path2.default.join(patchesDir, "policies.updated.routing.json"), JSON.stringify({ note: "apply changes to aiopt/policies/routing.json", fixes: fixes.filter((f) => f.id.includes("routing")) }, null, 2));
+  import_fs2.default.writeFileSync(import_path2.default.join(patchesDir, "policies.updated.retry.json"), JSON.stringify({ note: "apply changes to aiopt/policies/retry.json", fixes: fixes.filter((f) => f.id.includes("retry")) }, null, 2));
+  import_fs2.default.writeFileSync(import_path2.default.join(patchesDir, "policies.updated.output.json"), JSON.stringify({ note: "apply changes to aiopt/policies/output.json", fixes: fixes.filter((f) => f.id.includes("output")) }, null, 2));
+}
+var import_fs2, import_path2, EPS;
+var init_solutions = __esm({
+  "src/solutions.ts"() {
+    "use strict";
+    import_fs2 = __toESM(require("fs"));
+    import_path2 = __toESM(require("path"));
+    EPS = 1e-4;
+  }
+});
+
 // src/install.ts
 var install_exports = {};
 __export(install_exports, {
@@ -514,63 +592,8 @@ function costOfEvent(rt, ev) {
   };
 }
 
-// src/solutions.ts
-var import_fs2 = __toESM(require("fs"));
-var import_path2 = __toESM(require("path"));
-function buildTopFixes(analysis, savings) {
-  const fixes = [];
-  fixes.push({
-    id: "fix-retry-tuning",
-    title: "Retry tuning",
-    why: `Retry waste is estimated at $${savings.retry_waste}.`,
-    what_to_change: [
-      "aiopt/policies/retry.json: lower max_attempts or adjust backoff_ms",
-      "Ensure idempotency keys are stable per trace_id",
-      "Log error_code to identify retryable classes"
-    ]
-  });
-  fixes.push({
-    id: "fix-output-cap",
-    title: "Output cap",
-    why: `Context savings estimate suggests prompts are heavy; output caps prevent runaway completions.`,
-    what_to_change: [
-      "aiopt/policies/output.json: set max_output_tokens_default",
-      "aiopt/policies/output.json: set per_feature caps (summarize/classify/translate)"
-    ]
-  });
-  const topFeature = analysis.by_feature_top?.[0]?.key;
-  fixes.push({
-    id: "fix-routing",
-    title: "Routing rule",
-    why: `Routing savings estimate: $${savings.routing_savings}. (cheap features -> cheaper model)`,
-    what_to_change: [
-      "aiopt/policies/routing.json: route summarize/classify/translate to cheap tier",
-      `Consider adding feature_tag_in for top feature: ${topFeature || "(unknown)"}`
-    ]
-  });
-  return fixes;
-}
-function writePatches(outDir, fixes) {
-  const patchesDir = import_path2.default.join(outDir, "patches");
-  import_fs2.default.mkdirSync(patchesDir, { recursive: true });
-  const readme = [
-    "# AIOpt patches (MVP)",
-    "",
-    "This folder contains suggested changes you can apply locally.",
-    "",
-    "## Top fixes",
-    ...fixes.map((f, i) => `${i + 1}. ${f.title} \u2014 ${f.why}`),
-    "",
-    "Files are stubs (human review required).",
-    ""
-  ].join("\n");
-  import_fs2.default.writeFileSync(import_path2.default.join(patchesDir, "README.md"), readme);
-  import_fs2.default.writeFileSync(import_path2.default.join(patchesDir, "policies.updated.routing.json"), JSON.stringify({ note: "apply changes to aiopt/policies/routing.json", fixes: fixes.filter((f) => f.id.includes("routing")) }, null, 2));
-  import_fs2.default.writeFileSync(import_path2.default.join(patchesDir, "policies.updated.retry.json"), JSON.stringify({ note: "apply changes to aiopt/policies/retry.json", fixes: fixes.filter((f) => f.id.includes("retry")) }, null, 2));
-  import_fs2.default.writeFileSync(import_path2.default.join(patchesDir, "policies.updated.output.json"), JSON.stringify({ note: "apply changes to aiopt/policies/output.json", fixes: fixes.filter((f) => f.id.includes("output")) }, null, 2));
-}
-
 // src/scan.ts
+init_solutions();
 var ROUTE_TO_CHEAP_FEATURES = /* @__PURE__ */ new Set(["summarize", "classify", "translate"]);
 function topN(map, n) {
   return [...map.entries()].map(([key, v]) => ({ key, cost: v.cost, events: v.events })).sort((a, b) => b.cost - a.cost).slice(0, n);
@@ -667,22 +690,22 @@ function analyze(rt, events) {
   const estimatedSavingsTotal = routingSavings + contextSavings + retryWaste;
   const guardedSavingsTotal = Math.min(estimatedSavingsTotal, total);
   const analysis = {
-    total_cost: round2(total),
-    by_model_top: topN(byModel, 10).map((x) => ({ ...x, cost: round2(x.cost) })),
-    by_feature_top: topN(byFeature, 10).map((x) => ({ ...x, cost: round2(x.cost) })),
+    total_cost: round22(total),
+    by_model_top: topN(byModel, 10).map((x) => ({ ...x, cost: round22(x.cost) })),
+    by_feature_top: topN(byFeature, 10).map((x) => ({ ...x, cost: round22(x.cost) })),
     unknown_models: uniqUnknown(unknownModels),
     rate_table_version: rt.version,
     rate_table_date: rt.date
   };
   const savings = {
-    estimated_savings_total: round2(guardedSavingsTotal),
-    routing_savings: round2(routingSavings),
-    context_savings: round2(contextSavings),
-    retry_waste: round2(retryWaste),
+    estimated_savings_total: round22(guardedSavingsTotal),
+    routing_savings: round22(routingSavings),
+    context_savings: round22(contextSavings),
+    retry_waste: round22(retryWaste),
     notes: [
-      `a) \uBAA8\uB378 \uB77C\uC6B0\uD305 \uC808\uAC10(\uCD94\uC815): $${round2(routingSavings)}`,
-      `b) \uCEE8\uD14D\uC2A4\uD2B8 \uAC10\uCD95(\uCD94\uC815): $${round2(contextSavings)} (\uC0C1\uC704 20% input\uC5D0 25% \uAC10\uCD95 \uAC00\uC815)`,
-      `c) \uC7AC\uC2DC\uB3C4/\uC624\uB958 \uB0AD\uBE44(\uC0C1\uD55C \uC801\uC6A9): $${round2(retryWaste)} (retries \uAE30\uBC18)`
+      `a) \uBAA8\uB378 \uB77C\uC6B0\uD305 \uC808\uAC10(\uCD94\uC815): $${round22(routingSavings)}`,
+      `b) \uCEE8\uD14D\uC2A4\uD2B8 \uAC10\uCD95(\uCD94\uC815): $${round22(contextSavings)} (\uC0C1\uC704 20% input\uC5D0 25% \uAC10\uCD95 \uAC00\uC815)`,
+      `c) \uC7AC\uC2DC\uB3C4/\uC624\uB958 \uB0AD\uBE44(\uC0C1\uD55C \uC801\uC6A9): $${round22(retryWaste)} (retries \uAE30\uBC18)`
     ]
   };
   const policy = buildPolicy(rt, events);
@@ -723,7 +746,7 @@ function uniqUnknown(list) {
   }
   return out;
 }
-function round2(n) {
+function round22(n) {
   return Math.round(n * 100) / 100;
 }
 function writeOutputs(outDir, analysis, savings, policy, meta) {
@@ -828,7 +851,7 @@ program.command("init").description("aiopt-input/ \uBC0F \uC0D8\uD50C usage.json
   }
   console.log("Ready: ./aiopt-output/");
 });
-program.command("scan").description("\uC785\uB825 \uB85C\uADF8(JSONL/CSV)\uB97C \uBD84\uC11D\uD558\uACE0 report.md/report.json + patches\uAE4C\uC9C0 \uC0DD\uC131").option("--input <path>", "input file path (default: ./aiopt-output/usage.jsonl)", DEFAULT_INPUT).option("--out <dir>", "output dir (default: ./aiopt-output)", DEFAULT_OUTPUT_DIR).action((opts) => {
+program.command("scan").description("\uC785\uB825 \uB85C\uADF8(JSONL/CSV)\uB97C \uBD84\uC11D\uD558\uACE0 report.md/report.json + patches\uAE4C\uC9C0 \uC0DD\uC131").option("--input <path>", "input file path (default: ./aiopt-output/usage.jsonl)", DEFAULT_INPUT).option("--out <dir>", "output dir (default: ./aiopt-output)", DEFAULT_OUTPUT_DIR).action(async (opts) => {
   const inputPath = String(opts.input);
   const outDir = String(opts.out);
   if (!import_fs6.default.existsSync(inputPath)) {
@@ -840,10 +863,13 @@ program.command("scan").description("\uC785\uB825 \uB85C\uADF8(JSONL/CSV)\uB97C 
   const { analysis, savings, policy, meta } = analyze(rt, events);
   policy.generated_from.input = inputPath;
   writeOutputs(outDir, analysis, savings, policy, meta);
+  const { buildTopFixes: buildTopFixes2 } = await Promise.resolve().then(() => (init_solutions(), solutions_exports));
+  const fixes = buildTopFixes2(analysis, savings).slice(0, 3);
   console.log("Top Fix 3:");
-  console.log("1) Retry tuning (aiopt/policies/retry.json)");
-  console.log("2) Output cap (aiopt/policies/output.json)");
-  console.log("3) Routing rule (aiopt/policies/routing.json)");
+  fixes.forEach((f, i) => {
+    const tag = f.status === "no-issue" ? "(no issue detected)" : `($${Math.round(f.impact_usd * 100) / 100})`;
+    console.log(`${i + 1}) ${f.title} ${tag}`);
+  });
   console.log(`Report: ${import_path6.default.join(outDir, "report.md")}`);
 });
 program.command("policy").description("\uB9C8\uC9C0\uB9C9 scan \uACB0\uACFC \uAE30\uBC18\uC73C\uB85C cost-policy.json\uB9CC \uC7AC\uC0DD\uC131 (MVP: scan\uACFC \uB3D9\uC77C \uB85C\uC9C1)").option("--input <path>", "input file path (default: ./aiopt-input/usage.jsonl)", DEFAULT_INPUT).option("--out <dir>", "output dir (default: ./aiopt-output)", DEFAULT_OUTPUT_DIR).action((opts) => {

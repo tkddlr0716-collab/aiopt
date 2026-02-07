@@ -5,18 +5,24 @@ import { AnalysisJson, Savings } from './scan';
 export type Fix = {
   id: string;
   title: string;
+  impact_usd: number;
   why: string;
   what_to_change: string[];
+  status: 'action' | 'no-issue';
 };
+
+const EPS = 0.0001;
 
 export function buildTopFixes(analysis: AnalysisJson, savings: Savings): Fix[] {
   const fixes: Fix[] = [];
 
-  // 1) Retry tuning
+  // Retry tuning
   fixes.push({
     id: 'fix-retry-tuning',
     title: 'Retry tuning',
-    why: `Retry waste is estimated at $${savings.retry_waste}.`,
+    impact_usd: Number(savings.retry_waste || 0),
+    status: Number(savings.retry_waste || 0) > EPS ? 'action' : 'no-issue',
+    why: `Retry waste is estimated at $${round2(Number(savings.retry_waste || 0))}.`,
     what_to_change: [
       'aiopt/policies/retry.json: lower max_attempts or adjust backoff_ms',
       'Ensure idempotency keys are stable per trace_id',
@@ -24,30 +30,40 @@ export function buildTopFixes(analysis: AnalysisJson, savings: Savings): Fix[] {
     ]
   });
 
-  // 2) Output cap
+  // Output cap (use context_savings as proxy impact)
   fixes.push({
     id: 'fix-output-cap',
     title: 'Output cap',
-    why: `Context savings estimate suggests prompts are heavy; output caps prevent runaway completions.`,
+    impact_usd: Number(savings.context_savings || 0),
+    status: Number(savings.context_savings || 0) > EPS ? 'action' : 'no-issue',
+    why: `Context savings estimate: $${round2(Number(savings.context_savings || 0))}. Output caps prevent runaway completions.`,
     what_to_change: [
       'aiopt/policies/output.json: set max_output_tokens_default',
       'aiopt/policies/output.json: set per_feature caps (summarize/classify/translate)'
     ]
   });
 
-  // 3) Routing rule
+  // Routing
   const topFeature = analysis.by_feature_top?.[0]?.key;
   fixes.push({
     id: 'fix-routing',
     title: 'Routing rule',
-    why: `Routing savings estimate: $${savings.routing_savings}. (cheap features -> cheaper model)`,
+    impact_usd: Number(savings.routing_savings || 0),
+    status: Number(savings.routing_savings || 0) > EPS ? 'action' : 'no-issue',
+    why: `Routing savings estimate: $${round2(Number(savings.routing_savings || 0))}.`,
     what_to_change: [
       'aiopt/policies/routing.json: route summarize/classify/translate to cheap tier',
       `Consider adding feature_tag_in for top feature: ${topFeature || '(unknown)'}`
     ]
   });
 
+  // sort by impact desc, deterministic tie-break
+  fixes.sort((a, b) => (b.impact_usd - a.impact_usd) || a.id.localeCompare(b.id));
   return fixes;
+}
+
+function round2(n: number) {
+  return Math.round(n * 100) / 100;
 }
 
 export function writePatches(outDir: string, fixes: Fix[]) {
