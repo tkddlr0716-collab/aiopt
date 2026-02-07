@@ -1607,8 +1607,8 @@ function runQuickstart(cwd, opts) {
     summary: {
       total_cost_usd: analysis.total_cost,
       estimated_savings_usd: savings.estimated_savings_total,
-      routing_savings_usd: savings.estimated_savings_routing,
-      context_savings_usd: savings.estimated_savings_context,
+      routing_savings_usd: savings.routing_savings,
+      context_savings_usd: savings.context_savings,
       retry_waste_usd: savings.retry_waste
     },
     top: {
