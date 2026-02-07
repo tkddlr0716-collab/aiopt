@@ -763,7 +763,25 @@ function round2(n) {
 function writeOutputs(outDir, analysis, savings, policy) {
   import_fs2.default.mkdirSync(outDir, { recursive: true });
   import_fs2.default.writeFileSync(import_path2.default.join(outDir, "analysis.json"), JSON.stringify(analysis, null, 2));
-  const report = [
+  const reportJson = {
+    version: 1,
+    generated_at: (/* @__PURE__ */ new Date()).toISOString(),
+    summary: {
+      total_cost_usd: analysis.total_cost,
+      estimated_savings_usd: savings.estimated_savings_total,
+      routing_savings_usd: savings.routing_savings,
+      context_savings_usd: savings.context_savings,
+      retry_waste_usd: savings.retry_waste
+    },
+    top: {
+      by_model: analysis.by_model_top,
+      by_feature: analysis.by_feature_top
+    },
+    unknown_models: analysis.unknown_models,
+    notes: savings.notes
+  };
+  import_fs2.default.writeFileSync(import_path2.default.join(outDir, "report.json"), JSON.stringify(reportJson, null, 2));
+  const reportTxt = [
     `\uCD1D\uBE44\uC6A9: $${analysis.total_cost}`,
     `\uC808\uAC10 \uAC00\uB2A5 \uAE08\uC561(Estimated): $${savings.estimated_savings_total}`,
     `\uC808\uAC10 \uADFC\uAC70 3\uC904:`,
@@ -772,7 +790,7 @@ function writeOutputs(outDir, analysis, savings, policy) {
     savings.notes[2],
     ""
   ].join("\n");
-  import_fs2.default.writeFileSync(import_path2.default.join(outDir, "report.txt"), report);
+  import_fs2.default.writeFileSync(import_path2.default.join(outDir, "report.txt"), reportTxt);
   import_fs2.default.writeFileSync(import_path2.default.join(outDir, "cost-policy.json"), JSON.stringify(policy, null, 2));
 }
 

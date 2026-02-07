@@ -200,9 +200,30 @@ function round2(n: number) {
 
 export function writeOutputs(outDir: string, analysis: AnalysisJson, savings: Savings, policy: PolicyJson) {
   fs.mkdirSync(outDir, { recursive: true });
+
   fs.writeFileSync(path.join(outDir, 'analysis.json'), JSON.stringify(analysis, null, 2));
 
-  const report = [
+  // report.json is the “one file to parse” summary for downstream tooling.
+  const reportJson = {
+    version: 1,
+    generated_at: new Date().toISOString(),
+    summary: {
+      total_cost_usd: analysis.total_cost,
+      estimated_savings_usd: savings.estimated_savings_total,
+      routing_savings_usd: savings.routing_savings,
+      context_savings_usd: savings.context_savings,
+      retry_waste_usd: savings.retry_waste
+    },
+    top: {
+      by_model: analysis.by_model_top,
+      by_feature: analysis.by_feature_top
+    },
+    unknown_models: analysis.unknown_models,
+    notes: savings.notes
+  };
+  fs.writeFileSync(path.join(outDir, 'report.json'), JSON.stringify(reportJson, null, 2));
+
+  const reportTxt = [
     `총비용: $${analysis.total_cost}`,
     `절감 가능 금액(Estimated): $${savings.estimated_savings_total}`,
     `절감 근거 3줄:`,
@@ -211,7 +232,7 @@ export function writeOutputs(outDir: string, analysis: AnalysisJson, savings: Sa
     savings.notes[2],
     ''
   ].join('\n');
-  fs.writeFileSync(path.join(outDir, 'report.txt'), report);
+  fs.writeFileSync(path.join(outDir, 'report.txt'), reportTxt);
 
   fs.writeFileSync(path.join(outDir, 'cost-policy.json'), JSON.stringify(policy, null, 2));
 }
