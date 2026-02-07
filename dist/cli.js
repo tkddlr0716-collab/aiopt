@@ -9,6 +9,9 @@ var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __esm = (fn, res) => function __init() {
   return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
 };
+var __commonJS = (cb, mod) => function __require() {
+  return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+};
 var __export = (target, all) => {
   for (var name in all)
     __defProp(target, name, { get: all[name], enumerable: true });
@@ -105,6 +108,43 @@ var init_solutions = __esm({
     import_fs2 = __toESM(require("fs"));
     import_path2 = __toESM(require("path"));
     EPS = 1e-4;
+  }
+});
+
+// package.json
+var require_package = __commonJS({
+  "package.json"(exports2, module2) {
+    module2.exports = {
+      name: "aiopt",
+      version: "0.2.1",
+      description: "Serverless local CLI MVP for AI API cost analysis & cost-policy generation",
+      bin: {
+        aiopt: "dist/cli.js"
+      },
+      type: "commonjs",
+      main: "dist/cli.js",
+      files: [
+        "dist",
+        "rates",
+        "samples",
+        "README.md"
+      ],
+      scripts: {
+        build: "tsup",
+        dev: "node --enable-source-maps dist/cli.js",
+        prepack: "npm run build",
+        "test:npx": `npm pack --silent && node -e "const fs=require('fs');const p=fs.readdirSync('.').find(f=>/^aiopt-.*\\.tgz$/.test(f)); if(!p) throw new Error('tgz not found'); console.log('tgz',p);" && npx --yes ./$(ls -1 aiopt-*.tgz | tail -n 1) init && npx --yes ./$(ls -1 aiopt-*.tgz | tail -n 1) scan --input ./aiopt-input/usage.jsonl && test -f ./aiopt-output/report.txt && echo OK`
+      },
+      dependencies: {
+        commander: "^14.0.0",
+        "csv-parse": "^6.1.0"
+      },
+      devDependencies: {
+        "@types/node": "^24.0.0",
+        tsup: "^8.5.0",
+        typescript: "^5.9.2"
+      }
+    };
   }
 });
 
@@ -858,7 +898,7 @@ function loadRateTable() {
   const p = import_path6.default.join(__dirname, "..", "rates", "rate_table.json");
   return JSON.parse(import_fs6.default.readFileSync(p, "utf8"));
 }
-program.name("aiopt").description("AI \uBE44\uC6A9 \uC790\uB3D9 \uC808\uAC10 \uC778\uD504\uB77C \u2014 \uC11C\uBC84 \uC5C6\uB294 \uB85C\uCEEC CLI MVP").version("0.0.1");
+program.name("aiopt").description("AI \uBE44\uC6A9 \uC790\uB3D9 \uC808\uAC10 \uC778\uD504\uB77C \u2014 \uC11C\uBC84 \uC5C6\uB294 \uB85C\uCEEC CLI MVP").version(require_package().version);
 program.command("init").description("aiopt-input/ \uBC0F \uC0D8\uD50C usage.jsonl, aiopt-output/ \uC0DD\uC131").action(() => {
   ensureDir("./aiopt-input");
   ensureDir("./aiopt-output");

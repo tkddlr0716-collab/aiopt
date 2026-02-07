@@ -20,7 +20,9 @@ function loadRateTable(): RateTable {
 program
   .name('aiopt')
   .description('AI 비용 자동 절감 인프라 — 서버 없는 로컬 CLI MVP')
-  .version('0.0.1');
+  // keep CLI version in sync with package.json
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  .version(require('../package.json').version);
 
 program
   .command('init')
