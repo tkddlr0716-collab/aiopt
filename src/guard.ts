@@ -3,7 +3,13 @@ import { analyze } from './scan';
 import { costOfEvent } from './cost';
 
 export type GuardInput = {
+  // Required. Historical usage for comparison.
   baselineEvents: UsageEvent[];
+
+  // Optional. If provided, guard compares two *actual* log sets.
+  // When set, candidate transform knobs (model/context/retries multipliers) are ignored.
+  candidateEvents?: UsageEvent[];
+
   candidate: {
     provider?: string;
     model?: string;
@@ -142,7 +148,11 @@ export function runGuard(rt: RateTable, input: GuardInput): GuardResult {
   // For fair comparison, ignore billed_cost/cost_usd and recompute both sides from rate table.
   const baselineEvents = input.baselineEvents.map(e => ({ ...e, billed_cost: undefined }));
   const base = analyze(rt, baselineEvents);
-  const candidateEvents = applyCandidate(baselineEvents, input.candidate);
+
+  const candidateEvents = (input.candidateEvents && input.candidateEvents.length > 0)
+    ? input.candidateEvents.map(e => ({ ...e, billed_cost: undefined }))
+    : applyCandidate(baselineEvents, input.candidate);
+
   const cand = analyze(rt, candidateEvents);
 
   const baseCost = base.analysis.total_cost;
@@ -179,7 +189,10 @@ export function runGuard(rt: RateTable, input: GuardInput): GuardResult {
 
   const delta = candCost - baseCost;
 
-  const changeConf = confidenceFromChange(input.candidate);
+  const changeConf = input.candidateEvents
+    ? ({ level: 'High' as const, reasons: ['actual logs diff (--baseline/--candidate)'] })
+    : confidenceFromChange(input.candidate);
+
   const dq = assessDataQuality(baselineEvents, base);
   const conf = { level: degrade(changeConf.level, dq.penalty), reasons: [...changeConf.reasons, ...dq.reasons.map(r => `data: ${r}`)] };
 

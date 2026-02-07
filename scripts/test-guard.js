@@ -66,4 +66,17 @@ function mustContain(out, s) {
   mustContain(r.out, 'Confidence: Low');
 }
 
+// 6) Diff mode: compare two real log sets (--baseline/--candidate)
+{
+  const r = run([
+    'guard',
+    '--baseline', path.join(__dirname, '..', 'fixtures', 'baseline_small.jsonl'),
+    '--candidate', path.join(__dirname, '..', 'fixtures', 'candidate_small.jsonl')
+  ]);
+  assert(r.code === 2 || r.code === 3 || r.code === 0, 'exit code must be 0/2/3');
+  mustContain(r.out, 'baseline=$');
+  mustContain(r.out, 'candidate=$');
+  mustContain(r.out, 'Confidence:');
+}
+
 console.log('guard_tests_ok');

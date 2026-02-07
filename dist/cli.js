@@ -1024,7 +1024,7 @@ function runGuard(rt, input) {
   }
   const baselineEvents = input.baselineEvents.map((e) => ({ ...e, billed_cost: void 0 }));
   const base = analyze(rt, baselineEvents);
-  const candidateEvents = applyCandidate(baselineEvents, input.candidate);
+  const candidateEvents = input.candidateEvents && input.candidateEvents.length > 0 ? input.candidateEvents.map((e) => ({ ...e, billed_cost: void 0 })) : applyCandidate(baselineEvents, input.candidate);
   const cand = analyze(rt, candidateEvents);
   const baseCost = base.analysis.total_cost;
   let candCost = cand.analysis.total_cost;
@@ -1051,7 +1051,7 @@ function runGuard(rt, input) {
     candCost += retryUnit * input.candidate.retriesDelta;
   }
   const delta = candCost - baseCost;
-  const changeConf = confidenceFromChange(input.candidate);
+  const changeConf = input.candidateEvents ? { level: "High", reasons: ["actual logs diff (--baseline/--candidate)"] } : confidenceFromChange(input.candidate);
   const dq = assessDataQuality(baselineEvents, base);
   const conf = { level: degrade(changeConf.level, dq.penalty), reasons: [...changeConf.reasons, ...dq.reasons.map((r) => `data: ${r}`)] };
   const monthly = monthEstimate(Math.max(0, delta), baselineEvents);
@@ -1510,17 +1510,29 @@ licenseCmd.command("status").option("--path <path>", "license.json path (default
   console.log(`INVALID: ${v.reason || "unknown"}`);
   process.exit(3);
 });
-program.command("guard").description("Pre-deploy guardrail: compare baseline usage vs candidate change and print warnings (exit codes 0/2/3)").option("--input <path>", "baseline usage jsonl/csv (default: ./aiopt-output/usage.jsonl)", DEFAULT_INPUT).option("--provider <provider>", "candidate provider override").option("--model <model>", "candidate model override").option("--context-mult <n>", "multiply input_tokens by n", (v) => Number(v)).option("--output-mult <n>", "multiply output_tokens by n", (v) => Number(v)).option("--retries-delta <n>", "add n to retries", (v) => Number(v)).option("--call-mult <n>", "multiply call volume by n (traffic spike)", (v) => Number(v)).action(async (opts) => {
+program.command("guard").description("Pre-deploy guardrail: compare baseline usage vs candidate change (or diff two log sets) and print warnings (exit codes 0/2/3)").option("--input <path>", "baseline usage jsonl/csv (legacy alias for --baseline; default: ./aiopt-output/usage.jsonl)", DEFAULT_INPUT).option("--baseline <path>", "baseline usage jsonl/csv (diff mode when used with --candidate)").option("--candidate <path>", "candidate usage jsonl/csv (diff mode: compare two real log sets)").option("--provider <provider>", "candidate provider override (transform mode only)").option("--model <model>", "candidate model override (transform mode only)").option("--context-mult <n>", "multiply input_tokens by n (transform mode only)", (v) => Number(v)).option("--output-mult <n>", "multiply output_tokens by n (transform mode only)", (v) => Number(v)).option("--retries-delta <n>", "add n to retries (transform mode only)", (v) => Number(v)).option("--call-mult <n>", "multiply call volume by n (traffic spike)", (v) => Number(v)).action(async (opts) => {
   const rt = loadRateTable();
-  const inputPath = String(opts.input);
-  if (!import_fs8.default.existsSync(inputPath)) {
-    console.error(`FAIL: baseline not found: ${inputPath}`);
+  const baselinePath = String(opts.baseline || opts.input);
+  const candidatePath = opts.candidate ? String(opts.candidate) : null;
+  const diffMode = Boolean(opts.baseline || opts.candidate);
+  if (diffMode && (!opts.baseline || !opts.candidate)) {
+    console.error("FAIL: diff mode requires both --baseline and --candidate");
     process.exit(3);
   }
-  const events = isCsvPath(inputPath) ? readCsv(inputPath) : readJsonl(inputPath);
+  if (!import_fs8.default.existsSync(baselinePath)) {
+    console.error(`FAIL: baseline not found: ${baselinePath}`);
+    process.exit(3);
+  }
+  if (candidatePath && !import_fs8.default.existsSync(candidatePath)) {
+    console.error(`FAIL: candidate not found: ${candidatePath}`);
+    process.exit(3);
+  }
+  const baselineEvents = isCsvPath(baselinePath) ? readCsv(baselinePath) : readJsonl(baselinePath);
+  const candidateEvents = candidatePath ? isCsvPath(candidatePath) ? readCsv(candidatePath) : readJsonl(candidatePath) : void 0;
   const { runGuard: runGuard2 } = await Promise.resolve().then(() => (init_guard(), guard_exports));
   const r = runGuard2(rt, {
-    baselineEvents: events,
+    baselineEvents,
+    candidateEvents,
     candidate: {
       provider: opts.provider,
       model: opts.model,

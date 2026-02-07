@@ -195,26 +195,46 @@ licenseCmd
 // vNext: guardrail mode (pre-deploy warning)
 program
   .command('guard')
-  .description('Pre-deploy guardrail: compare baseline usage vs candidate change and print warnings (exit codes 0/2/3)')
-  .option('--input <path>', 'baseline usage jsonl/csv (default: ./aiopt-output/usage.jsonl)', DEFAULT_INPUT)
-  .option('--provider <provider>', 'candidate provider override')
-  .option('--model <model>', 'candidate model override')
-  .option('--context-mult <n>', 'multiply input_tokens by n', (v) => Number(v))
-  .option('--output-mult <n>', 'multiply output_tokens by n', (v) => Number(v))
-  .option('--retries-delta <n>', 'add n to retries', (v) => Number(v))
+  .description('Pre-deploy guardrail: compare baseline usage vs candidate change (or diff two log sets) and print warnings (exit codes 0/2/3)')
+  .option('--input <path>', 'baseline usage jsonl/csv (legacy alias for --baseline; default: ./aiopt-output/usage.jsonl)', DEFAULT_INPUT)
+  .option('--baseline <path>', 'baseline usage jsonl/csv (diff mode when used with --candidate)')
+  .option('--candidate <path>', 'candidate usage jsonl/csv (diff mode: compare two real log sets)')
+  .option('--provider <provider>', 'candidate provider override (transform mode only)')
+  .option('--model <model>', 'candidate model override (transform mode only)')
+  .option('--context-mult <n>', 'multiply input_tokens by n (transform mode only)', (v) => Number(v))
+  .option('--output-mult <n>', 'multiply output_tokens by n (transform mode only)', (v) => Number(v))
+  .option('--retries-delta <n>', 'add n to retries (transform mode only)', (v) => Number(v))
   .option('--call-mult <n>', 'multiply call volume by n (traffic spike)', (v) => Number(v))
   .action(async (opts) => {
     const rt = loadRateTable();
-    const inputPath = String(opts.input);
-    if (!fs.existsSync(inputPath)) {
-      console.error(`FAIL: baseline not found: ${inputPath}`);
+
+    const baselinePath = String(opts.baseline || opts.input);
+    const candidatePath = opts.candidate ? String(opts.candidate) : null;
+
+    const diffMode = Boolean(opts.baseline || opts.candidate);
+    if (diffMode && (!opts.baseline || !opts.candidate)) {
+      console.error('FAIL: diff mode requires both --baseline and --candidate');
       process.exit(3);
     }
-    const events = isCsvPath(inputPath) ? readCsv(inputPath) : readJsonl(inputPath);
+
+    if (!fs.existsSync(baselinePath)) {
+      console.error(`FAIL: baseline not found: ${baselinePath}`);
+      process.exit(3);
+    }
+    if (candidatePath && !fs.existsSync(candidatePath)) {
+      console.error(`FAIL: candidate not found: ${candidatePath}`);
+      process.exit(3);
+    }
+
+    const baselineEvents = isCsvPath(baselinePath) ? readCsv(baselinePath) : readJsonl(baselinePath);
+    const candidateEvents = candidatePath
+      ? (isCsvPath(candidatePath) ? readCsv(candidatePath) : readJsonl(candidatePath))
+      : undefined;
 
     const { runGuard } = await import('./guard');
     const r = runGuard(rt, {
-      baselineEvents: events,
+      baselineEvents,
+      candidateEvents,
       candidate: {
         provider: opts.provider,
         model: opts.model,

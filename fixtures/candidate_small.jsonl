@@ -1,0 +1,2 @@
+{"ts":"2026-02-07T00:00:01Z","provider":"openai","model":"gpt-5.2","prompt_tokens":50000,"completion_tokens":5000,"endpoint":"responses","attempt":1,"trace_id":"c1","status":"ok","meta":{"feature_tag":"coding"}}
+{"ts":"2026-02-07T00:10:01Z","provider":"openai","model":"gpt-5.2","prompt_tokens":50000,"completion_tokens":5000,"endpoint":"responses","attempt":1,"trace_id":"c2","status":"ok","meta":{"feature_tag":"coding"}}
