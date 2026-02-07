@@ -1,14 +1,16 @@
 # AIOpt Platform Support (검수 기준)
 
-AIOpt는 **Node.js 기반 로컬 CLI**로 동작하며, GitHub Actions CI에서 아래 매트릭스로 지속 검증합니다.
+AIOpt는 **Node.js 기반 로컬 CLI**입니다.
+- 기본 모드(Guardrail): **완전 로컬/결정적(deterministic)** — 업로드/계정/서버 없음
+- 선택 기능: 로컬 대시보드(127.0.0.1 바인딩), 스캔/리포트 생성(로컬 파일 입출력)
 
 ## Official CI Matrix
 - OS: **Windows / macOS / Linux**
 - Node: **18 / 20 / 22**
 
-CI는 다음을 검증합니다:
-- `install → doctor → (fake usage) → scan` produces required outputs
-- `guard` exit code handling + summary output
+CI에서 확인하는 것:
+- `install → doctor → guard` (exit code/요약 출력)
+- (옵션) `scan` 기본 경로에서 동작 및 산출물 생성
 - fixtures 기반 `npm run test:guard`
 - offline license `npm run test:license`
 
@@ -17,8 +19,8 @@ CI는 다음을 검증합니다:
 - `npx` 사용 가능(npm 포함)
 
 ## Windows Notes
-- GitHub Actions에서는 `bash`가 제공되어(Windows runner에 Git Bash 포함) CI의 guard summary 단계가 동작합니다.
-- 로컬에서 테스트할 때는 PowerShell에서도 동작합니다.
+- GitHub Actions Windows runner에는 `bash`가 제공되어(= Git Bash) Step Summary 파이프가 동작합니다.
+- 로컬에서는 **PowerShell/CMD**에서도 동작해야 합니다.
 
 ### PowerShell quick smoke
 ```powershell
@@ -38,6 +40,7 @@ npx --yes aiopt guard --context-mult 1.2 --call-mult 10
 npx --yes aiopt dashboard --port 3010
 ```
 
-## Known Limitations
+## Known Limitations / Caveats
 - `dashboard`는 **127.0.0.1 바인딩**(로컬 전용)이라 외부에서 접근할 수 없습니다.
 - baseline `usage.jsonl`의 `ts` span이 너무 짧으면 confidence가 data-quality로 하향될 수 있습니다.
+- Unknown model/provider는 rate table에서 `Estimated`로 처리될 수 있습니다.

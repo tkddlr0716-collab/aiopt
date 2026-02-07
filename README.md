@@ -4,7 +4,14 @@
 [![ci](https://github.com/tkddlr0716-collab/aiopt/actions/workflows/ci.yml/badge.svg)](https://github.com/tkddlr0716-collab/aiopt/actions/workflows/ci.yml)
 [![license](https://img.shields.io/npm/l/aiopt)](./LICENSE)
 
-**3-line quickstart (Guardrail mode)**
+AIOpt is a **pre-deploy cost accident guardrail** for LLM changes.
+- baseline = your observed local usage log (`usage.jsonl` / `usage.csv`)
+- candidate = estimated change (model/provider/context/output/retry/traffic deltas)
+- output = deterministic verdict + monthly impact estimate + confidence
+
+No server. No upload. No account. No payments inside the CLI.
+
+## 3-line quickstart (Guardrail)
 ```bash
 npx aiopt install --force
 # baseline: your existing usage log
@@ -22,21 +29,10 @@ Common knobs:
 - `--retries-delta <n>` (more retries/attempts)
 - `--call-mult <n>` (traffic spike / call volume)
 
-CI tip: print guard output into the GitHub Actions **Step Summary** so you don’t need to scroll logs.
-
-## Product definition (Guardrail)
-AIOpt is a **pre-deploy cost accident guardrail** for LLM changes.
-
-- **Baseline** = your observed usage log (`usage.jsonl` / `usage.csv`)
-- **Candidate** = an estimated change (model/provider/context/output/retry/traffic deltas)
-- Output = a deterministic verdict + monthly impact estimate + confidence
-- Designed for CI: fast, local, no network calls (beyond downloading the npm package)
-
 ## CI integration (GitHub Actions)
 You can run `aiopt guard` in CI to catch accidental cost blow-ups before merge.
 
 ### 1) Non-blocking (report only)
-
 ```yaml
 - name: AI cost guard (non-blocking)
   run: |
@@ -44,57 +40,34 @@ You can run `aiopt guard` in CI to catch accidental cost blow-ups before merge.
 ```
 
 ### 2) Merge-blocking (fail on high risk)
-
 ```yaml
 - name: AI cost guard (blocking)
   run: |
     npx aiopt guard --input ./aiopt-output/usage.jsonl --context-mult 1.2
 ```
 
-Tips:
-- Keep a small representative baseline log in the repo (or in CI artifacts) for deterministic checks.
-- Use the wrapper (`npx aiopt install --force`) to record baseline locally during dev.
+Tip: print guard output into the GitHub Actions **Step Summary** so you don’t need to scroll logs.
 
-AIOpt is a **serverless local Guardrail CLI**.
-- No signup, no upload, no product server.
-- Optional local dashboard: `npx aiopt dashboard --port 3010` (binds to 127.0.0.1)
-- Reads local JSONL/CSV → writes local outputs.
-- **No LLM calls** (math + deterministic rules only).
+## Optional: local dashboard
+```bash
+npx aiopt dashboard --port 3010
+```
+- Binds to **127.0.0.1** (local-only)
+- Reads local JSONL/CSV → renders locally
 
-Landing (demo): https://scoopingly-subcancellous-sunny.ngrok-free.dev/landing/
-Docs: `aiopt/README.md` (install-first guide)
-Pricing/flow: `docs/PRODUCT_PRICING_AND_FLOW.md`
+## Optional: deeper local analysis (`scan`)
+`scan` generates a more detailed local report + patch stubs (still local-only).
 
-## What you get
 After `scan`, you will have:
-1) `./aiopt-output/analysis.json` (top cost by feature/model)
-2) `./aiopt-output/report.md` (WHAT TO CHANGE)
-3) `./aiopt-output/report.json` (machine-readable summary)
-4) `./aiopt-output/patches/*` (policy patch stubs)
-5) `./aiopt-output/cost-policy.json` (policy file)
-
-### Sample `report.txt`
-```
-총비용: $0.23
-절감 가능 금액(Estimated): $0.21
-절감 근거 3줄:
-a) 모델 라우팅 절감(추정): $0.07
-b) 컨텍스트 감축(추정): $0.02 (상위 20% input에 25% 감축 가정)
-c) 재시도/오류 낭비(상한 적용): $0.13
-```
-
-### Sample console output
-```
-Top Fix 3:
-1) Retry tuning ($0.01)
-2) Output cap (no issue detected)
-3) Routing rule (no issue detected)
-Report: aiopt-output/report.md
-```
+1) `./aiopt-output/analysis.json`
+2) `./aiopt-output/report.md`
+3) `./aiopt-output/report.json`
+4) `./aiopt-output/patches/*`
+5) `./aiopt-output/cost-policy.json`
 
 ## Input (default)
 - Default path: `./aiopt-output/usage.jsonl`
-- Change: `npx aiopt scan --input <path>`
+- Change: `npx aiopt guard --input <path>`
 - Supported: JSONL (1 event per line), CSV
 
 AIOpt supports both:
@@ -111,39 +84,10 @@ For wrapper logs:
 Optional:
 - `billed_cost` (aggregated) or `cost_usd` (wrapper)
 
-### JSONL example (5 lines)
-```jsonl
-{"ts":"2026-02-07T00:00:01Z","provider":"openai","model":"gpt-5-mini","input_tokens":12000,"output_tokens":1800,"feature_tag":"summarize","retries":0,"status":"ok"}
-{"ts":"2026-02-07T00:00:02Z","provider":"openai","model":"gpt-5.2","input_tokens":35000,"output_tokens":3000,"feature_tag":"coding","retries":1,"status":"ok"}
-{"ts":"2026-02-07T00:00:03Z","provider":"anthropic","model":"claude-sonnet","input_tokens":22000,"output_tokens":2500,"feature_tag":"classify","retries":0,"status":"ok"}
-{"ts":"2026-02-07T00:00:04Z","provider":"gemini","model":"gemini-1.5-flash","input_tokens":9000,"output_tokens":1200,"feature_tag":"translate","retries":0,"status":"ok"}
-{"ts":"2026-02-07T00:00:05Z","provider":"openai","model":"unknown-model-x","input_tokens":8000,"output_tokens":1000,"feature_tag":"summarize","retries":2,"status":"error"}
-```
-
-## Outputs
-- `analysis.json`
-  - `total_cost`
-  - `by_model_top` (top 10)
-  - `by_feature_top` (top 10)
-  - `unknown_models`
-  - `rate_table_version`, `rate_table_date`
-- `report.md`
-  - WHAT TO CHANGE (file paths + keys)
-  - confidence + assumptions
-- `report.json`
-  - summary + warnings + assumptions
-- `patches/*`
-  - `policies.updated.*` stubs
-- `cost-policy.json`
-  - `version, default_provider, rules, budgets, generated_from`
-
 ## Rate table
 - `./rates/rate_table.json`
-- Unknown models/providers are marked as `Estimated` and listed in `unknown_models`.
+- Unknown models/providers may be marked as `Estimated`.
 - `provider=local` (or `ollama`/`vllm`) is treated as **$0** by default (CPU/GPU cost not included).
-
-## Contact
-- Instagram: **@sangikpp**
 
 ## License (offline)
 If you have a signed license key:
@@ -153,14 +97,11 @@ npx aiopt license status
 npx aiopt license verify
 ```
 
-## Local dev
-```bash
-npm i
-npm run build
-node dist/cli.js install --force
-node dist/cli.js doctor
-node dist/cli.js guard --context-mult 1.2 --call-mult 10
-node dist/cli.js dashboard --port 3010
-node dist/cli.js scan
-```
+## Docs
+- Install-first guide: `aiopt/README.md`
+- Platform support / caveats: `docs/PLATFORM_SUPPORT.md`
+- Pricing/flow (internal): `docs/PRODUCT_PRICING_AND_FLOW.md`
+- Payment/license ops: `docs/PAYMENT.md`
 
+## Contact
+- Instagram: **@sangikpp**
