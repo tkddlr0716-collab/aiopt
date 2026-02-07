@@ -481,7 +481,7 @@ var require_package = __commonJS({
   "package.json"(exports2, module2) {
     module2.exports = {
       name: "aiopt",
-      version: "0.2.9",
+      version: "0.3.0",
       description: "Pre-deploy LLM cost accident guardrail (serverless local CLI)",
       bin: {
         aiopt: "dist/cli.js"
