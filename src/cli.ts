@@ -291,13 +291,16 @@ program
     console.log('OK: demo usage written:', r.usagePath);
     console.log('--- guard ---');
     console.log(r.guard.message);
-    // persist guard-last for dashboard
+    // persist guard-last + append guard history for dashboard
     try {
       const fs = await import('fs');
       const path = await import('path');
       fs.mkdirSync(r.outDir, { recursive: true });
+      const ts = new Date().toISOString();
       fs.writeFileSync(path.join(r.outDir, 'guard-last.txt'), r.guard.message);
-      fs.writeFileSync(path.join(r.outDir, 'guard-last.json'), JSON.stringify({ ts: new Date().toISOString(), exitCode: r.guard.exitCode }, null, 2));
+      fs.writeFileSync(path.join(r.outDir, 'guard-last.json'), JSON.stringify({ ts, exitCode: r.guard.exitCode }, null, 2));
+      const histLine = JSON.stringify({ ts, exitCode: r.guard.exitCode, mode: 'quickstart', baseline: r.usagePath, candidate: null }) + '\n';
+      fs.appendFileSync(path.join(r.outDir, 'guard-history.jsonl'), histLine);
     } catch {}
     console.log('--- next ---');
     console.log(`Run: npx aiopt dashboard --port ${r.port}`);

@@ -211,9 +211,9 @@ async function load(){
 
   const usageTxt = await fetch('/api/usage.jsonl').then(r=>r.ok?r.text():null);
   if(usageTxt){
-    // quick n dirty: count lines per day for last 7 days (visual proxy)
+    // 7d cost trend: sum(cost_usd) per day from usage.jsonl (ev.ts).
     const now = Date.now();
-    const bins = Array.from({length:7}, (_,i)=>({ day:i, count:0 }));
+    const bins = Array.from({length:7}, (_,i)=>({ day:i, cost:0, calls:0 }));
     for(const line of usageTxt.trim().split('\n')){
       if(!line) continue;
       try{
@@ -221,15 +221,20 @@ async function load(){
         const t = Date.parse(ev.ts);
         if(!Number.isFinite(t)) continue;
         const d = Math.floor((now - t) / 86400000);
-        if(d>=0 && d<7) bins[d].count++;
+        if(d>=0 && d<7){
+          bins[d].calls++;
+          const c = Number(ev.cost_usd);
+          if(Number.isFinite(c)) bins[d].cost += c;
+        }
       }catch{}
     }
-    const max = Math.max(...bins.map(b=>b.count), 1);
+    const max = Math.max(...bins.map(b=>b.cost), 0.000001);
     const rows = bins.reverse().map((b,idx)=>{
-      const w = Math.round((b.count/max)*20);
+      const w = Math.round((b.cost/max)*20);
       const bar = '█'.repeat(w) + '░'.repeat(20-w);
       const label = (idx===0 ? 'today' : ('d-'+idx));
-      return String(label).padEnd(7) + ' ' + bar + ' ' + b.count;
+      const dollars = ('$' + (Math.round(b.cost*100)/100).toFixed(2));
+      return String(label).padEnd(7) + ' ' + bar + ' ' + String(dollars).padStart(9) + '  (' + b.calls + ' calls)';
     });
     document.getElementById('trend').textContent = rows.join('\n');
   } else {
