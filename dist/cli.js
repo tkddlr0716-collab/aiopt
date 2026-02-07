@@ -434,16 +434,21 @@ function toNum(x, def = 0) {
   return Number.isFinite(n) ? n : def;
 }
 function normalizeEvent(x) {
+  const inputTokens = x.input_tokens ?? x.prompt_tokens;
+  const outputTokens = x.output_tokens ?? x.completion_tokens;
+  const featureTag = x.feature_tag ?? x?.meta?.feature_tag ?? x.endpoint ?? "";
+  const retries = x.retries ?? (x.attempt !== void 0 ? Math.max(0, toNum(x.attempt) - 1) : 0);
+  const billed = x.billed_cost ?? x.cost_usd;
   return {
     ts: String(x.ts ?? ""),
     provider: String(x.provider ?? "").toLowerCase(),
     model: String(x.model ?? ""),
-    input_tokens: toNum(x.input_tokens),
-    output_tokens: toNum(x.output_tokens),
-    feature_tag: String(x.feature_tag ?? ""),
-    retries: toNum(x.retries),
+    input_tokens: toNum(inputTokens),
+    output_tokens: toNum(outputTokens),
+    feature_tag: String(featureTag ?? ""),
+    retries: toNum(retries),
     status: String(x.status ?? ""),
-    billed_cost: x.billed_cost === void 0 || x.billed_cost === "" ? void 0 : toNum(x.billed_cost)
+    billed_cost: billed === void 0 || billed === "" ? void 0 : toNum(billed)
   };
 }
 function isCsvPath(p) {

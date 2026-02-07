@@ -30,16 +30,32 @@ function toNum(x: any, def = 0): number {
 }
 
 function normalizeEvent(x: any): UsageEvent {
+  // Supports two schemas:
+  // 1) scan input schema: input_tokens/output_tokens/feature_tag/retries
+  // 2) wrapper usage schema: prompt_tokens/completion_tokens/endpoint/attempt/trace_id/cost_usd
+
+  const inputTokens = x.input_tokens ?? x.prompt_tokens;
+  const outputTokens = x.output_tokens ?? x.completion_tokens;
+
+  // feature_tag fallback: feature_tag -> meta.feature_tag -> endpoint
+  const featureTag = x.feature_tag ?? x?.meta?.feature_tag ?? x.endpoint ?? '';
+
+  // retries fallback: retries -> max(attempt-1,0)
+  const retries = x.retries ?? (x.attempt !== undefined ? Math.max(0, toNum(x.attempt) - 1) : 0);
+
+  // billed_cost fallback: billed_cost -> cost_usd
+  const billed = x.billed_cost ?? x.cost_usd;
+
   return {
     ts: String(x.ts ?? ''),
     provider: String(x.provider ?? '').toLowerCase(),
     model: String(x.model ?? ''),
-    input_tokens: toNum(x.input_tokens),
-    output_tokens: toNum(x.output_tokens),
-    feature_tag: String(x.feature_tag ?? ''),
-    retries: toNum(x.retries),
+    input_tokens: toNum(inputTokens),
+    output_tokens: toNum(outputTokens),
+    feature_tag: String(featureTag ?? ''),
+    retries: toNum(retries),
     status: String(x.status ?? ''),
-    billed_cost: x.billed_cost === undefined || x.billed_cost === '' ? undefined : toNum(x.billed_cost)
+    billed_cost: billed === undefined || billed === '' ? undefined : toNum(billed)
   };
 }
 
