@@ -3,6 +3,7 @@ import path from 'path';
 
 export type InstallOptions = {
   force?: boolean;
+  seedSample?: boolean;
 };
 
 function ensureDir(p: string) {
@@ -296,25 +297,30 @@ module.exports = { guardedCall };
   // 5) usage.jsonl
   const usagePath = path.join(outDir, 'usage.jsonl');
   if (force || !fs.existsSync(usagePath)) {
-    const header = {
-      ts: new Date().toISOString(),
-      request_id: 'sample',
-      trace_id: 'sample',
-      attempt: 1,
-      status: 'ok',
-      error_code: null,
-      provider: 'openai',
-      model: 'gpt-5-mini',
-      endpoint: 'demo',
-      prompt_tokens: 12,
-      completion_tokens: 3,
-      total_tokens: 15,
-      cost_usd: 0.0,
-      latency_ms: 1,
-      meta: { routed_from: null, policy_hits: ['install-sample'] }
-    };
-    fs.writeFileSync(usagePath, JSON.stringify(header) + '\n');
+    // default: empty file (avoid mixing demo data into real user logs)
+    fs.writeFileSync(usagePath, '');
     created.push({ path: 'aiopt-output/usage.jsonl', status: 'created' });
+
+    if (opts.seedSample) {
+      const sample = {
+        ts: new Date().toISOString(),
+        request_id: 'sample',
+        trace_id: 'sample',
+        attempt: 1,
+        status: 'ok',
+        error_code: null,
+        provider: 'openai',
+        model: 'gpt-5-mini',
+        endpoint: 'demo',
+        prompt_tokens: 12,
+        completion_tokens: 3,
+        total_tokens: 15,
+        cost_usd: 0.0,
+        latency_ms: 1,
+        meta: { feature_tag: 'demo', routed_from: null, policy_hits: ['install-sample'] }
+      };
+      fs.appendFileSync(usagePath, JSON.stringify(sample) + '\n');
+    }
   } else {
     created.push({ path: 'aiopt-output/usage.jsonl', status: 'skipped' });
   }

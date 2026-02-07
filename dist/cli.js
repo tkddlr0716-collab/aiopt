@@ -307,25 +307,28 @@ module.exports = { guardedCall };
   created.push({ path: "aiopt/aiopt-wrapper.js", status: w.wrote ? "created" : "skipped" });
   const usagePath = import_path4.default.join(outDir, "usage.jsonl");
   if (force || !import_fs4.default.existsSync(usagePath)) {
-    const header = {
-      ts: (/* @__PURE__ */ new Date()).toISOString(),
-      request_id: "sample",
-      trace_id: "sample",
-      attempt: 1,
-      status: "ok",
-      error_code: null,
-      provider: "openai",
-      model: "gpt-5-mini",
-      endpoint: "demo",
-      prompt_tokens: 12,
-      completion_tokens: 3,
-      total_tokens: 15,
-      cost_usd: 0,
-      latency_ms: 1,
-      meta: { routed_from: null, policy_hits: ["install-sample"] }
-    };
-    import_fs4.default.writeFileSync(usagePath, JSON.stringify(header) + "\n");
+    import_fs4.default.writeFileSync(usagePath, "");
     created.push({ path: "aiopt-output/usage.jsonl", status: "created" });
+    if (opts.seedSample) {
+      const sample = {
+        ts: (/* @__PURE__ */ new Date()).toISOString(),
+        request_id: "sample",
+        trace_id: "sample",
+        attempt: 1,
+        status: "ok",
+        error_code: null,
+        provider: "openai",
+        model: "gpt-5-mini",
+        endpoint: "demo",
+        prompt_tokens: 12,
+        completion_tokens: 3,
+        total_tokens: 15,
+        cost_usd: 0,
+        latency_ms: 1,
+        meta: { feature_tag: "demo", routed_from: null, policy_hits: ["install-sample"] }
+      };
+      import_fs4.default.appendFileSync(usagePath, JSON.stringify(sample) + "\n");
+    }
   } else {
     created.push({ path: "aiopt-output/usage.jsonl", status: "skipped" });
   }
@@ -376,7 +379,7 @@ function runDoctor(cwd) {
   checks.push({ name: "aiopt-output/ writable", ok: canWrite(outDir) });
   checks.push({ name: "usage.jsonl exists", ok: import_fs5.default.existsSync(usagePath), detail: usagePath });
   const last5raw = tailLines(usagePath, 5);
-  const last5 = last5raw.map((l) => {
+  const last5 = last5raw.length === 0 ? [{ status: "(empty usage.jsonl)" }] : last5raw.map((l) => {
     try {
       const j = JSON.parse(l);
       return {
@@ -854,9 +857,9 @@ program.command("policy").description("\uB9C8\uC9C0\uB9C9 scan \uACB0\uACFC \uAE
   import_fs6.default.writeFileSync(import_path6.default.join(outDir, "cost-policy.json"), JSON.stringify(policy, null, 2));
   console.log(`OK: ${outDir}/cost-policy.json`);
 });
-program.command("install").description("Install AIOpt guardrails: create aiopt/ + policies + usage.jsonl").option("--force", "overwrite existing files").action(async (opts) => {
+program.command("install").description("Install AIOpt guardrails: create aiopt/ + policies + usage.jsonl").option("--force", "overwrite existing files").option("--seed-sample", "seed 1 sample line into aiopt-output/usage.jsonl").action(async (opts) => {
   const { runInstall: runInstall2 } = await Promise.resolve().then(() => (init_install(), install_exports));
-  const result = runInstall2(process.cwd(), { force: Boolean(opts.force) });
+  const result = runInstall2(process.cwd(), { force: Boolean(opts.force), seedSample: Boolean(opts.seedSample) });
   for (const c of result.created) {
     console.log(`${c.status === "created" ? "CREATED" : "SKIP"}: ${c.path}`);
   }

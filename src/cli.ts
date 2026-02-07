@@ -96,9 +96,10 @@ program
   .command('install')
   .description('Install AIOpt guardrails: create aiopt/ + policies + usage.jsonl')
   .option('--force', 'overwrite existing files')
+  .option('--seed-sample', 'seed 1 sample line into aiopt-output/usage.jsonl')
   .action(async (opts) => {
     const { runInstall } = await import('./install');
-    const result = runInstall(process.cwd(), { force: Boolean(opts.force) });
+    const result = runInstall(process.cwd(), { force: Boolean(opts.force), seedSample: Boolean(opts.seedSample) });
     for (const c of result.created) {
       console.log(`${c.status === 'created' ? 'CREATED' : 'SKIP'}: ${c.path}`);
     }

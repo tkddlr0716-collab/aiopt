@@ -43,7 +43,7 @@ export function runDoctor(cwd: string): DoctorResult {
   checks.push({ name: 'usage.jsonl exists', ok: fs.existsSync(usagePath), detail: usagePath });
 
   const last5raw = tailLines(usagePath, 5);
-  const last5 = last5raw.map(l => {
+  const last5 = last5raw.length === 0 ? [{ status: '(empty usage.jsonl)' }] as any : last5raw.map(l => {
     try {
       const j = JSON.parse(l);
       return {
@@ -61,3 +61,4 @@ export function runDoctor(cwd: string): DoctorResult {
   const ok = checks.every(c => c.ok);
   return { ok, checks, last5 };
 }
+
