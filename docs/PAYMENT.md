@@ -10,7 +10,14 @@ AIOpt는 **서버 없는 로컬 CLI**입니다. 결제는 Polar로 받고, 제�
 - 소개/체험: `/` (install → guard)
 - 결제: `/buy` (Polar checkout 링크 + 활성화 안내)
 
-`aiopt-landing/server.js`는 아래 env를 읽어 buy 버튼 링크를 채웁니다:
+### GitHub Pages (static)
+이 repo의 `site/buy.html`은 **정적 페이지**라 서버 env를 읽지 못합니다.
+현재는 아래 중 하나로 Polar 링크를 주입합니다:
+- `buy.html` 내부에 링크를 하드코딩하거나
+- query params로 주입: `/buy.html?pro=<url>&team=<url>`
+
+### (선택) 별도 landing server (dynamic)
+동적 서버를 운영한다면 환경변수로 주입하는 방식을 사용할 수 있습니다:
 - `POLAR_PRO_URL`
 - `POLAR_TEAM_URL`
 

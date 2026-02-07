@@ -44,3 +44,4 @@ npx --yes aiopt dashboard --port 3010
 - `dashboard`는 **127.0.0.1 바인딩**(로컬 전용)이라 외부에서 접근할 수 없습니다.
 - baseline `usage.jsonl`의 `ts` span이 너무 짧으면 confidence가 data-quality로 하향될 수 있습니다.
 - Unknown model/provider는 rate table에서 `Estimated`로 처리될 수 있습니다.
+- `provider=local`(또는 `ollama`/`vllm`)은 기본적으로 **$0로 가정**합니다. (CPU/GPU/서빙 비용은 포함하지 않음)

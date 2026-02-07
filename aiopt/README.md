@@ -161,3 +161,12 @@ node -e "const fs=require('fs');const p='aiopt-output/usage.jsonl';fs.mkdirSync(
 npx aiopt scan
 # 결과: aiopt-output/report.md, report.json, patches/*
 ```
+
+## Docs / Caveats
+- Platform support: `docs/PLATFORM_SUPPORT.md`
+- Payment & offline license ops: `docs/PAYMENT.md`
+
+Known caveats (요약):
+- `dashboard`는 127.0.0.1(local-only)
+- baseline `ts` span이 너무 짧으면 confidence가 하향될 수 있음
+- `provider=local/ollama/vllm`은 기본 $0 가정(인프라 비용 제외)

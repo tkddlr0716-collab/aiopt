@@ -89,6 +89,11 @@ Optional:
 - Unknown models/providers may be marked as `Estimated`.
 - `provider=local` (or `ollama`/`vllm`) is treated as **$0** by default (CPU/GPU cost not included).
 
+## Known caveats
+- If your baseline log covers a very short `ts` span, confidence may be degraded (data quality).
+- The local dashboard binds to **127.0.0.1** only.
+- Local providers are assumed **$0** by default (infra cost not included).
+
 ## License (offline)
 If you have a signed license key:
 ```bash
