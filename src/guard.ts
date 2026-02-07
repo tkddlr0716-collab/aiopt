@@ -1,5 +1,6 @@
 import { RateTable, UsageEvent } from './types';
 import { analyze } from './scan';
+import { costOfEvent } from './cost';
 
 export type GuardInput = {
   baselineEvents: UsageEvent[];
@@ -88,6 +89,43 @@ function confidenceFromChange(cand: GuardInput['candidate']): { level: 'High'|'M
   return { level: 'Medium', reasons: reasons.length ? reasons : ['unknown change'] };
 }
 
+function assessDataQuality(baselineEvents: UsageEvent[], base: ReturnType<typeof analyze>) {
+  const reasons: string[] = [];
+
+  // ts span
+  const times = baselineEvents
+    .map(e => Date.parse(e.ts))
+    .filter(t => Number.isFinite(t))
+    .sort((a, b) => a - b);
+  if (times.length < 2) reasons.push('ts span unknown');
+  else {
+    const spanDays = Math.max(0, (times[times.length - 1] - times[0]) / (1000 * 60 * 60 * 24));
+    if (spanDays < 0.25) reasons.push('ts span too short');
+  }
+
+  // feature tag coverage
+  const missingFt = baselineEvents.filter(e => !e.feature_tag && !(e.meta && (e.meta as any).feature_tag)).length;
+  if (missingFt / Math.max(1, baselineEvents.length) > 0.2) reasons.push('feature_tag missing >20%');
+
+  // unknown model/provider
+  const unknown = (base.analysis.unknown_models || []).length;
+  if (unknown / Math.max(1, baselineEvents.length) > 0.2) reasons.push('unknown model/provider >20%');
+
+  // Map to a confidence penalty.
+  let penalty: 'none'|'low'|'medium' = 'none';
+  if (reasons.length >= 2) penalty = 'medium';
+  else if (reasons.length === 1) penalty = 'low';
+
+  return { reasons, penalty };
+}
+
+function degrade(level: 'High'|'Medium'|'Low', penalty: 'none'|'low'|'medium'): 'High'|'Medium'|'Low' {
+  if (penalty === 'none') return level;
+  if (penalty === 'low') return level === 'High' ? 'Medium' : 'Low';
+  // medium
+  return 'Low';
+}
+
 export function runGuard(rt: RateTable, input: GuardInput): GuardResult {
   if (!input.baselineEvents || input.baselineEvents.length === 0) {
     const conf = { level: 'Low' as const, reasons: ['baseline empty'] };
@@ -119,13 +157,31 @@ export function runGuard(rt: RateTable, input: GuardInput): GuardResult {
   // attempt-log baseline: retriesDelta should be interpreted as "extra attempts".
   const attemptLog = baselineEvents.some(e => (e.trace_id && String(e.trace_id).length > 0) || (e.attempt !== undefined && Number(e.attempt) > 0));
   if (attemptLog && input.candidate.retriesDelta && input.candidate.retriesDelta > 0) {
-    // deterministic approximation: each +1 retry adds one more attempt at baseline cost.
-    candCost += baseCost * input.candidate.retriesDelta;
+    // More accurate deterministic approximation:
+    // - If baseline already has retry attempts (attempt>=2), use their average cost as retry unit.
+    // - Else fall back to avg baseline attempt cost.
+    let retryUnit = 0;
+    let retryCount = 0;
+    for (const ev of baselineEvents) {
+      const attempt = Number(ev.attempt || 1);
+      if (attempt >= 2) {
+        retryUnit += costOfEvent(rt, ev).cost;
+        retryCount += 1;
+      }
+    }
+    if (retryCount > 0) {
+      retryUnit = retryUnit / retryCount;
+    } else {
+      retryUnit = baseCost / Math.max(1, baselineEvents.length);
+    }
+    candCost += retryUnit * input.candidate.retriesDelta;
   }
 
   const delta = candCost - baseCost;
 
-  const conf = confidenceFromChange(input.candidate);
+  const changeConf = confidenceFromChange(input.candidate);
+  const dq = assessDataQuality(baselineEvents, base);
+  const conf = { level: degrade(changeConf.level, dq.penalty), reasons: [...changeConf.reasons, ...dq.reasons.map(r => `data: ${r}`)] };
 
   // Guard logic:
   // - Warning if delta > 0 and monthEstimate(delta) >= $10

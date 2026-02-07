@@ -127,6 +127,71 @@ program
     }
   });
 
+// Offline license (no servers)
+const licenseCmd = program
+  .command('license')
+  .description('Offline license activate/verify (public key only; no server calls)');
+
+licenseCmd
+  .command('activate')
+  .argument('<KEY>', 'license key (<payloadB64Url>.<sigB64Url>)')
+  .option('--out <path>', 'output license.json path (default: ./aiopt/license.json)')
+  .action(async (key, opts) => {
+    const { DEFAULT_PUBLIC_KEY_PEM, defaultLicensePath, verifyLicenseKey, writeLicenseFile } = await import('./license');
+    const outPath = opts.out ? String(opts.out) : defaultLicensePath(process.cwd());
+    const pub = process.env.AIOPT_LICENSE_PUBKEY || DEFAULT_PUBLIC_KEY_PEM;
+    const v = verifyLicenseKey(String(key), pub);
+    if (!v.payload) {
+      console.error(`FAIL: ${v.reason || 'invalid license'}`);
+      process.exit(3);
+    }
+    writeLicenseFile(outPath, String(key), v.payload, v.ok);
+    console.log(v.ok ? `OK: activated (${outPath})` : `WARN: saved but not verified (${v.reason}) (${outPath})`);
+    process.exit(v.ok ? 0 : 2);
+  });
+
+licenseCmd
+  .command('verify')
+  .option('--path <path>', 'license.json path (default: ./aiopt/license.json)')
+  .action(async (opts) => {
+    const { DEFAULT_PUBLIC_KEY_PEM, defaultLicensePath, readLicenseFile, verifyLicenseKey } = await import('./license');
+    const p = opts.path ? String(opts.path) : defaultLicensePath(process.cwd());
+    const pub = process.env.AIOPT_LICENSE_PUBKEY || DEFAULT_PUBLIC_KEY_PEM;
+    if (!fs.existsSync(p)) {
+      console.error(`FAIL: license file not found: ${p}`);
+      process.exit(3);
+    }
+    const f = readLicenseFile(p);
+    const v = verifyLicenseKey(f.key, pub);
+    if (v.ok) {
+      console.log('OK: license verified');
+      process.exit(0);
+    }
+    console.error(`FAIL: license invalid (${v.reason || 'unknown'})`);
+    process.exit(3);
+  });
+
+licenseCmd
+  .command('status')
+  .option('--path <path>', 'license.json path (default: ./aiopt/license.json)')
+  .action(async (opts) => {
+    const { DEFAULT_PUBLIC_KEY_PEM, defaultLicensePath, readLicenseFile, verifyLicenseKey } = await import('./license');
+    const p = opts.path ? String(opts.path) : defaultLicensePath(process.cwd());
+    const pub = process.env.AIOPT_LICENSE_PUBKEY || DEFAULT_PUBLIC_KEY_PEM;
+    if (!fs.existsSync(p)) {
+      console.log('NO_LICENSE');
+      process.exit(2);
+    }
+    const f = readLicenseFile(p);
+    const v = verifyLicenseKey(f.key, pub);
+    if (v.ok) {
+      console.log(`OK: ${f.payload.plan} exp=${f.payload.exp}`);
+      process.exit(0);
+    }
+    console.log(`INVALID: ${v.reason || 'unknown'}`);
+    process.exit(3);
+  });
+
 // vNext: guardrail mode (pre-deploy warning)
 program
   .command('guard')

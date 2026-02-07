@@ -3,4 +3,5 @@ dist/*.map
 aiopt-*.tgz
 aiopt-input/
 aiopt-output/
+aiopt/license.json
 .DS_Store

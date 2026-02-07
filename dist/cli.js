@@ -844,6 +844,91 @@ var init_doctor = __esm({
   }
 });
 
+// src/license.ts
+var license_exports = {};
+__export(license_exports, {
+  DEFAULT_PUBLIC_KEY_PEM: () => DEFAULT_PUBLIC_KEY_PEM,
+  defaultLicensePath: () => defaultLicensePath,
+  parseLicenseKey: () => parseLicenseKey,
+  readLicenseFile: () => readLicenseFile,
+  verifyLicenseKey: () => verifyLicenseKey,
+  writeLicenseFile: () => writeLicenseFile
+});
+function b64urlDecodeToBuffer(s) {
+  const padLen = (4 - s.length % 4) % 4;
+  const padded = s.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat(padLen);
+  return Buffer.from(padded, "base64");
+}
+function safeJsonParse(buf) {
+  const txt = buf.toString("utf8");
+  return JSON.parse(txt);
+}
+function parseLicenseKey(key) {
+  const parts = String(key).trim().split(".");
+  if (parts.length !== 2) throw new Error("invalid license key format: expected <payloadB64Url>.<sigB64Url>");
+  const [payloadB64Url, sigB64Url] = parts;
+  const payloadBuf = b64urlDecodeToBuffer(payloadB64Url);
+  const sigBuf = b64urlDecodeToBuffer(sigB64Url);
+  const payload = safeJsonParse(payloadBuf);
+  return { payload, signature: sigBuf, payloadB64Url };
+}
+function verifyLicenseKey(key, publicKeyPem) {
+  let parsed;
+  try {
+    parsed = parseLicenseKey(key);
+  } catch (e) {
+    return { ok: false, reason: e?.message || "parse error" };
+  }
+  const now = Math.floor(Date.now() / 1e3);
+  if (typeof parsed.payload?.exp !== "number" || parsed.payload.exp < now) {
+    return { ok: false, reason: "expired", payload: parsed.payload };
+  }
+  try {
+    const verifier = import_crypto.default.createVerify("RSA-SHA256");
+    verifier.update(parsed.payloadB64Url);
+    verifier.end();
+    const ok = verifier.verify(publicKeyPem, parsed.signature);
+    if (!ok) return { ok: false, reason: "bad signature", payload: parsed.payload };
+    return { ok: true, payload: parsed.payload };
+  } catch (e) {
+    return { ok: false, reason: e?.message || "verify error", payload: parsed.payload };
+  }
+}
+function defaultLicensePath(cwd) {
+  return import_path6.default.join(cwd, "aiopt", "license.json");
+}
+function writeLicenseFile(p, key, payload, verified) {
+  const out = {
+    key,
+    payload,
+    verified,
+    verified_at: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  import_fs6.default.mkdirSync(import_path6.default.dirname(p), { recursive: true });
+  import_fs6.default.writeFileSync(p, JSON.stringify(out, null, 2));
+}
+function readLicenseFile(p) {
+  return JSON.parse(import_fs6.default.readFileSync(p, "utf8"));
+}
+var import_crypto, import_fs6, import_path6, DEFAULT_PUBLIC_KEY_PEM;
+var init_license = __esm({
+  "src/license.ts"() {
+    "use strict";
+    import_crypto = __toESM(require("crypto"));
+    import_fs6 = __toESM(require("fs"));
+    import_path6 = __toESM(require("path"));
+    DEFAULT_PUBLIC_KEY_PEM = `-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAz1LLE/pXIx5TloDa0LAf
+jg9NSIW6STWhsAFP2ZzXgpWoQ3cCmW6xcB/4QNEmPpGlfMWhyRfkxsdKuhnjUMTg
+8MpMAcbjjF8JrGS9iLnW4yrLm7jzsOcndjkGO7pH+32GopZk98dVzmIRPok2Je76
+3MQRaxLi0jWytaCmacEB4R7HyuquOQlHPg0vD9NOEwrC/+br2GdQbD1lKPyLeLv3
+RidwAs8Iw2xx5g8G+BsVSM/HRC3jQT5GynfnuDsvMHCvGLRct/76ajiR71/NFZEP
+Z7liILNnZzCTlKGGZfZmG70t+zkg8HKdpRuWy8rZ0DPWyQg5MKm6TZOMV6dC0Rpg
+DwIDAQAB
+-----END PUBLIC KEY-----`;
+  }
+});
+
 // src/guard.ts
 var guard_exports = {};
 __export(guard_exports, {
@@ -901,6 +986,28 @@ function confidenceFromChange(cand) {
   }
   return { level: "Medium", reasons: reasons.length ? reasons : ["unknown change"] };
 }
+function assessDataQuality(baselineEvents, base) {
+  const reasons = [];
+  const times = baselineEvents.map((e) => Date.parse(e.ts)).filter((t) => Number.isFinite(t)).sort((a, b) => a - b);
+  if (times.length < 2) reasons.push("ts span unknown");
+  else {
+    const spanDays = Math.max(0, (times[times.length - 1] - times[0]) / (1e3 * 60 * 60 * 24));
+    if (spanDays < 0.25) reasons.push("ts span too short");
+  }
+  const missingFt = baselineEvents.filter((e) => !e.feature_tag && !(e.meta && e.meta.feature_tag)).length;
+  if (missingFt / Math.max(1, baselineEvents.length) > 0.2) reasons.push("feature_tag missing >20%");
+  const unknown = (base.analysis.unknown_models || []).length;
+  if (unknown / Math.max(1, baselineEvents.length) > 0.2) reasons.push("unknown model/provider >20%");
+  let penalty = "none";
+  if (reasons.length >= 2) penalty = "medium";
+  else if (reasons.length === 1) penalty = "low";
+  return { reasons, penalty };
+}
+function degrade(level, penalty) {
+  if (penalty === "none") return level;
+  if (penalty === "low") return level === "High" ? "Medium" : "Low";
+  return "Low";
+}
 function runGuard(rt, input) {
   if (!input.baselineEvents || input.baselineEvents.length === 0) {
     const conf2 = { level: "Low", reasons: ["baseline empty"] };
@@ -925,10 +1032,26 @@ function runGuard(rt, input) {
   }
   const attemptLog = baselineEvents.some((e) => e.trace_id && String(e.trace_id).length > 0 || e.attempt !== void 0 && Number(e.attempt) > 0);
   if (attemptLog && input.candidate.retriesDelta && input.candidate.retriesDelta > 0) {
-    candCost += baseCost * input.candidate.retriesDelta;
+    let retryUnit = 0;
+    let retryCount = 0;
+    for (const ev of baselineEvents) {
+      const attempt = Number(ev.attempt || 1);
+      if (attempt >= 2) {
+        retryUnit += costOfEvent(rt, ev).cost;
+        retryCount += 1;
+      }
+    }
+    if (retryCount > 0) {
+      retryUnit = retryUnit / retryCount;
+    } else {
+      retryUnit = baseCost / Math.max(1, baselineEvents.length);
+    }
+    candCost += retryUnit * input.candidate.retriesDelta;
   }
   const delta = candCost - baseCost;
-  const conf = confidenceFromChange(input.candidate);
+  const changeConf = confidenceFromChange(input.candidate);
+  const dq = assessDataQuality(baselineEvents, base);
+  const conf = { level: degrade(changeConf.level, dq.penalty), reasons: [...changeConf.reasons, ...dq.reasons.map((r) => `data: ${r}`)] };
   const monthly = monthEstimate(Math.max(0, delta), baselineEvents);
   const monthlyRounded = round23(monthly);
   let exitCode = 0;
@@ -956,12 +1079,13 @@ var init_guard = __esm({
   "src/guard.ts"() {
     "use strict";
     init_scan();
+    init_cost();
   }
 });
 
 // src/cli.ts
-var import_fs6 = __toESM(require("fs"));
-var import_path6 = __toESM(require("path"));
+var import_fs7 = __toESM(require("fs"));
+var import_path7 = __toESM(require("path"));
 var import_commander = require("commander");
 
 // src/io.ts
@@ -1022,17 +1146,17 @@ var program = new import_commander.Command();
 var DEFAULT_INPUT = "./aiopt-output/usage.jsonl";
 var DEFAULT_OUTPUT_DIR = "./aiopt-output";
 function loadRateTable() {
-  const p = import_path6.default.join(__dirname, "..", "rates", "rate_table.json");
-  return JSON.parse(import_fs6.default.readFileSync(p, "utf8"));
+  const p = import_path7.default.join(__dirname, "..", "rates", "rate_table.json");
+  return JSON.parse(import_fs7.default.readFileSync(p, "utf8"));
 }
 program.name("aiopt").description("AI \uBE44\uC6A9 \uC790\uB3D9 \uC808\uAC10 \uC778\uD504\uB77C \u2014 \uC11C\uBC84 \uC5C6\uB294 \uB85C\uCEEC CLI MVP").version(require_package().version);
 program.command("init").description("aiopt-input/ \uBC0F \uC0D8\uD50C usage.jsonl, aiopt-output/ \uC0DD\uC131").action(() => {
   ensureDir("./aiopt-input");
   ensureDir("./aiopt-output");
-  const sampleSrc = import_path6.default.join(__dirname, "..", "samples", "sample_usage.jsonl");
-  const dst = import_path6.default.join("./aiopt-input", "usage.jsonl");
-  if (!import_fs6.default.existsSync(dst)) {
-    import_fs6.default.copyFileSync(sampleSrc, dst);
+  const sampleSrc = import_path7.default.join(__dirname, "..", "samples", "sample_usage.jsonl");
+  const dst = import_path7.default.join("./aiopt-input", "usage.jsonl");
+  if (!import_fs7.default.existsSync(dst)) {
+    import_fs7.default.copyFileSync(sampleSrc, dst);
     console.log("Created ./aiopt-input/usage.jsonl (sample)");
   } else {
     console.log("Exists ./aiopt-input/usage.jsonl (skip)");
@@ -1042,7 +1166,7 @@ program.command("init").description("aiopt-input/ \uBC0F \uC0D8\uD50C usage.json
 program.command("scan").description("\uC785\uB825 \uB85C\uADF8(JSONL/CSV)\uB97C \uBD84\uC11D\uD558\uACE0 report.md/report.json + patches\uAE4C\uC9C0 \uC0DD\uC131").option("--input <path>", "input file path (default: ./aiopt-output/usage.jsonl)", DEFAULT_INPUT).option("--out <dir>", "output dir (default: ./aiopt-output)", DEFAULT_OUTPUT_DIR).action(async (opts) => {
   const inputPath = String(opts.input);
   const outDir = String(opts.out);
-  if (!import_fs6.default.existsSync(inputPath)) {
+  if (!import_fs7.default.existsSync(inputPath)) {
     console.error(`Input not found: ${inputPath}`);
     process.exit(1);
   }
@@ -1058,7 +1182,7 @@ program.command("scan").description("\uC785\uB825 \uB85C\uADF8(JSONL/CSV)\uB97C 
     const tag = f.status === "no-issue" ? "(no issue detected)" : `($${Math.round(f.impact_usd * 100) / 100})`;
     console.log(`${i + 1}) ${f.title} ${tag}`);
   });
-  console.log(`Report: ${import_path6.default.join(outDir, "report.md")}`);
+  console.log(`Report: ${import_path7.default.join(outDir, "report.md")}`);
 });
 program.command("policy").description("\uB9C8\uC9C0\uB9C9 scan \uACB0\uACFC \uAE30\uBC18\uC73C\uB85C cost-policy.json\uB9CC \uC7AC\uC0DD\uC131 (MVP: scan\uACFC \uB3D9\uC77C \uB85C\uC9C1)").option("--input <path>", "input file path (default: ./aiopt-input/usage.jsonl)", DEFAULT_INPUT).option("--out <dir>", "output dir (default: ./aiopt-output)", DEFAULT_OUTPUT_DIR).action((opts) => {
   const inputPath = String(opts.input);
@@ -1068,7 +1192,7 @@ program.command("policy").description("\uB9C8\uC9C0\uB9C9 scan \uACB0\uACFC \uAE
   const { policy } = analyze(rt, events);
   policy.generated_from.input = inputPath;
   ensureDir(outDir);
-  import_fs6.default.writeFileSync(import_path6.default.join(outDir, "cost-policy.json"), JSON.stringify(policy, null, 2));
+  import_fs7.default.writeFileSync(import_path7.default.join(outDir, "cost-policy.json"), JSON.stringify(policy, null, 2));
   console.log(`OK: ${outDir}/cost-policy.json`);
 });
 program.command("install").description("Install AIOpt guardrails: create aiopt/ + policies + usage.jsonl").option("--force", "overwrite existing files").option("--seed-sample", "seed 1 sample line into aiopt-output/usage.jsonl").action(async (opts) => {
@@ -1090,10 +1214,41 @@ program.command("doctor").description("Check installation + print last 5 usage e
     console.log(JSON.stringify(x));
   }
 });
+var licenseCmd = program.command("license").description("Offline license activate/verify (public key only; no server calls)");
+licenseCmd.command("activate").argument("<KEY>", "license key (<payloadB64Url>.<sigB64Url>)").option("--out <path>", "output license.json path (default: ./aiopt/license.json)").action(async (key, opts) => {
+  const { DEFAULT_PUBLIC_KEY_PEM: DEFAULT_PUBLIC_KEY_PEM2, defaultLicensePath: defaultLicensePath2, verifyLicenseKey: verifyLicenseKey2, writeLicenseFile: writeLicenseFile2 } = await Promise.resolve().then(() => (init_license(), license_exports));
+  const outPath = opts.out ? String(opts.out) : defaultLicensePath2(process.cwd());
+  const pub = process.env.AIOPT_LICENSE_PUBKEY || DEFAULT_PUBLIC_KEY_PEM2;
+  const v = verifyLicenseKey2(String(key), pub);
+  if (!v.payload) {
+    console.error(`FAIL: ${v.reason || "invalid license"}`);
+    process.exit(3);
+  }
+  writeLicenseFile2(outPath, String(key), v.payload, v.ok);
+  console.log(v.ok ? `OK: activated (${outPath})` : `WARN: saved but not verified (${v.reason}) (${outPath})`);
+  process.exit(v.ok ? 0 : 2);
+});
+licenseCmd.command("verify").option("--path <path>", "license.json path (default: ./aiopt/license.json)").action(async (opts) => {
+  const { DEFAULT_PUBLIC_KEY_PEM: DEFAULT_PUBLIC_KEY_PEM2, defaultLicensePath: defaultLicensePath2, readLicenseFile: readLicenseFile2, verifyLicenseKey: verifyLicenseKey2 } = await Promise.resolve().then(() => (init_license(), license_exports));
+  const p = opts.path ? String(opts.path) : defaultLicensePath2(process.cwd());
+  const pub = process.env.AIOPT_LICENSE_PUBKEY || DEFAULT_PUBLIC_KEY_PEM2;
+  if (!import_fs7.default.existsSync(p)) {
+    console.error(`FAIL: license file not found: ${p}`);
+    process.exit(3);
+  }
+  const f = readLicenseFile2(p);
+  const v = verifyLicenseKey2(f.key, DEFAULT_PUBLIC_KEY_PEM2);
+  if (v.ok) {
+    console.log("OK: license verified");
+    process.exit(0);
+  }
+  console.error(`FAIL: license invalid (${v.reason || "unknown"})`);
+  process.exit(3);
+});
 program.command("guard").description("Pre-deploy guardrail: compare baseline usage vs candidate change and print warnings (exit codes 0/2/3)").option("--input <path>", "baseline usage jsonl/csv (default: ./aiopt-output/usage.jsonl)", DEFAULT_INPUT).option("--provider <provider>", "candidate provider override").option("--model <model>", "candidate model override").option("--context-mult <n>", "multiply input_tokens by n", (v) => Number(v)).option("--output-mult <n>", "multiply output_tokens by n", (v) => Number(v)).option("--retries-delta <n>", "add n to retries", (v) => Number(v)).option("--call-mult <n>", "multiply call volume by n (traffic spike)", (v) => Number(v)).action(async (opts) => {
   const rt = loadRateTable();
   const inputPath = String(opts.input);
-  if (!import_fs6.default.existsSync(inputPath)) {
+  if (!import_fs7.default.existsSync(inputPath)) {
     console.error(`FAIL: baseline not found: ${inputPath}`);
     process.exit(3);
   }

@@ -46,6 +46,8 @@ jobs:
           code=$?
 
           echo "guard_exit=$code"
+          echo "AIOPT_GUARD_EXIT=$code" >> "$GITHUB_ENV"
+          printf "%s" "$out" > ./aiopt-output/guard.txt
 
           echo "## AIOpt Guardrail" >> "$GITHUB_STEP_SUMMARY"
           if [ "$code" = "0" ]; then
@@ -62,4 +64,35 @@ jobs:
 
       - name: Guard tests (fixtures)
         run: npm run test:guard
+
+      - name: Guard (blocking example: expect FAIL=3)
+        working-directory: .ci-smoke
+        run: |
+          set +e
+          node ../dist/cli.js guard --input ./aiopt-output/usage.jsonl --model gpt-5.2 --context-mult 50
+          code=$?
+          echo "blocking_example_exit=$code"
+          # This is how you would block merges:
+          #   node ../dist/cli.js guard ...   (no set +e)
+          # Here we assert the command would return 3.
+          test "$code" = "3"
+
+      - name: PR comment (guardrail)
+        if: github.event_name == 'pull_request' && env.AIOPT_GUARD_EXIT != '0'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('.ci-smoke/aiopt-output/guard.txt','utf8');
+            const pr = context.payload.pull_request;
+            if (!pr) return;
+            const header = `## AIOpt Guardrail (${process.env.AIOPT_GUARD_EXIT})`;
+            const msg = `${header}\n\n\`\`\`\n${body}\n\`\`\``;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+              body: msg
+            });
+
 
