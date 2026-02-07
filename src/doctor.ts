@@ -51,12 +51,33 @@ export function runDoctor(cwd: string): DoctorResult {
         provider: j.provider,
         model: j.model,
         endpoint: j.endpoint,
-        attempt: j.attempt
+        attempt: j.attempt,
+        feature_tag: j?.meta?.feature_tag
       };
     } catch {
       return {};
     }
   });
+
+  // Feature-tag quality check (sample last 50 lines)
+  const last50 = tailLines(usagePath, 50);
+  let missing = 0;
+  let total50 = 0;
+  for (const l of last50) {
+    total50++;
+    try {
+      const j = JSON.parse(l);
+      const ft = j?.meta?.feature_tag;
+      if (!ft || String(ft).trim() === '') missing++;
+    } catch {
+      missing++;
+    }
+  }
+  if (total50 > 0 && missing > 0) {
+    checks.push({ name: 'feature_tag quality (last50)', ok: false, detail: `${missing}/${total50} missing meta.feature_tag` });
+  } else {
+    checks.push({ name: 'feature_tag quality (last50)', ok: true, detail: 'meta.feature_tag present' });
+  }
 
   const ok = checks.every(c => c.ok);
   return { ok, checks, last5 };

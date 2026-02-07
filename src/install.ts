@@ -270,7 +270,8 @@ async function guardedCall(cwd, input, fn){
       const latency_ms=Date.now()-t0;
       const norm=normalizeResult(out, input);
       const cost_usd=(typeof norm.cost_usd==='number') ? norm.cost_usd : costUsd(rt, input.provider, routed.model, norm.prompt_tokens, norm.completion_tokens);
-      appendJsonl(usagePath, { ts:new Date().toISOString(), request_id, trace_id, attempt, status: norm.status, error_code: norm.error_code, provider: input.provider, model: routed.model, endpoint: input.endpoint, prompt_tokens: norm.prompt_tokens, completion_tokens: norm.completion_tokens, total_tokens: norm.total_tokens, cost_usd, latency_ms, meta:{ routed_from: routed.routed_from, policy_hits } });
+      const feature_tag = input.feature_tag || input.endpoint || 'unknown';
+      appendJsonl(usagePath, { ts:new Date().toISOString(), request_id, trace_id, attempt, status: norm.status, error_code: norm.error_code, provider: input.provider, model: routed.model, endpoint: input.endpoint, prompt_tokens: norm.prompt_tokens, completion_tokens: norm.completion_tokens, total_tokens: norm.total_tokens, cost_usd, latency_ms, meta:{ feature_tag, routed_from: routed.routed_from, policy_hits } });
       last={ status: norm.status, completion_tokens: norm.completion_tokens, error_code: norm.error_code };
       if(norm.status==='ok'){ IDEMPOTENCY.set(idem,out); return out; }
       if(retryOn.has(norm.status) && attempt<maxAttempts){ await sleep(Number(backoffs[Math.min(attempt-1, backoffs.length-1)]||200)); continue; }
@@ -278,7 +279,8 @@ async function guardedCall(cwd, input, fn){
     }catch(e){
       const latency_ms=Date.now()-t0;
       const out={ status:'error', completion_tokens:0, error_code:String(e && (e.code||e.name) || 'exception') };
-      appendJsonl(usagePath, { ts:new Date().toISOString(), request_id, trace_id, attempt, status: out.status, error_code: out.error_code, provider: input.provider, model: routed.model, endpoint: input.endpoint, prompt_tokens:Number(input.prompt_tokens||0), completion_tokens:0, total_tokens:Number(input.prompt_tokens||0), cost_usd:costUsd(rt, input.provider, routed.model, Number(input.prompt_tokens||0), 0), latency_ms, meta:{ routed_from: routed.routed_from, policy_hits:[routed.hit||'routing:none','outputcap:'+maxOut,'error:exception'] } });
+      const feature_tag = input.feature_tag || input.endpoint || 'unknown';
+      appendJsonl(usagePath, { ts:new Date().toISOString(), request_id, trace_id, attempt, status: out.status, error_code: out.error_code, provider: input.provider, model: routed.model, endpoint: input.endpoint, prompt_tokens:Number(input.prompt_tokens||0), completion_tokens:0, total_tokens:Number(input.prompt_tokens||0), cost_usd:costUsd(rt, input.provider, routed.model, Number(input.prompt_tokens||0), 0), latency_ms, meta:{ feature_tag, routed_from: routed.routed_from, policy_hits:[routed.hit||'routing:none','outputcap:'+maxOut,'error:exception'] } });
       last=out;
       if(attempt<maxAttempts){ await sleep(Number(backoffs[Math.min(attempt-1, backoffs.length-1)]||200)); continue; }
       IDEMPOTENCY.set(idem,out); return out;
