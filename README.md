@@ -68,6 +68,9 @@ c) 재시도/오류 낭비: $0.13 (retries 기반)
 - `./rates/rate_table.json`
 - Unknown models are marked as `Estimated` and listed in `unknown_models`.
 
+## Contact
+- Instagram: **@sangikpp**
+
 ## Local dev
 ```bash
 cd aiopt
