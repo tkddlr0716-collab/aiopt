@@ -4,4 +4,5 @@ aiopt-*.tgz
 aiopt-input/
 aiopt-output/
 aiopt/license.json
+.tmp-license/
 .DS_Store
