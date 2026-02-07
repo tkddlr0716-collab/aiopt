@@ -290,6 +290,31 @@ function classifyError(e: any): { status: 'error' | 'timeout'; code: string } {
   return { status: isTimeout ? 'timeout' : 'error', code: (e?.code ? String(e.code) : isTimeout ? 'TIMEOUT' : 'ERROR') };
 }
 
+function extractObservedUsage(res: any): Partial<Pick<UsageLine, 'prompt_tokens' | 'completion_tokens' | 'total_tokens' | 'cost_usd'>> {
+  // Best-effort extraction for common SDK shapes.
+  // OpenAI-like: { usage: { prompt_tokens, completion_tokens, total_tokens } }
+  // Some wrappers: { cost_usd } or { costUSD } or { cost: { usd } }
+  try {
+    const u = res?.usage;
+    const prompt_tokens = typeof u?.prompt_tokens === 'number' ? u.prompt_tokens : undefined;
+    const completion_tokens = typeof u?.completion_tokens === 'number' ? u.completion_tokens : undefined;
+    const total_tokens = typeof u?.total_tokens === 'number' ? u.total_tokens : undefined;
+
+    const cost_usd =
+      typeof res?.cost_usd === 'number'
+        ? res.cost_usd
+        : typeof res?.costUSD === 'number'
+          ? res.costUSD
+          : typeof res?.cost?.usd === 'number'
+            ? res.cost.usd
+            : undefined;
+
+    return { prompt_tokens, completion_tokens, total_tokens, cost_usd };
+  } catch {
+    return {};
+  }
+}
+
 function appendUsageLine(usagePath: string, line: UsageLine) {
   ensureDir(path.dirname(usagePath));
   fs.appendFileSync(usagePath, JSON.stringify(line) + '
@@ -335,10 +360,12 @@ export function aioptWrap<T>(fn: (req: AioptCallRequest<T>) => Promise<T>, opts?
 
         const latency_ms = Date.now() - t0;
 
-        const prompt_tokens = Number(req.prompt_tokens ?? 0);
-        const completion_tokens = Number(req.completion_tokens ?? 0);
-        const total_tokens = Number(req.total_tokens ?? (prompt_tokens + completion_tokens));
-        const cost_usd = Number(req.cost_usd ?? 0);
+        const observed = extractObservedUsage(res as any);
+
+        const prompt_tokens = Number(observed.prompt_tokens ?? req.prompt_tokens ?? 0);
+        const completion_tokens = Number(observed.completion_tokens ?? req.completion_tokens ?? 0);
+        const total_tokens = Number(observed.total_tokens ?? req.total_tokens ?? (prompt_tokens + completion_tokens));
+        const cost_usd = Number(observed.cost_usd ?? req.cost_usd ?? 0);
 
         appendUsageLine(usagePath, {
           ts: new Date().toISOString(),
