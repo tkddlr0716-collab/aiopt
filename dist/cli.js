@@ -32,6 +32,72 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
   mod
 ));
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+
+// src/io.ts
+var io_exports = {};
+__export(io_exports, {
+  ensureDir: () => ensureDir,
+  isCsvPath: () => isCsvPath,
+  readCsv: () => readCsv,
+  readJsonl: () => readJsonl
+});
+function ensureDir(p) {
+  import_fs.default.mkdirSync(p, { recursive: true });
+}
+function readJsonl(filePath) {
+  const raw = import_fs.default.readFileSync(filePath, "utf8");
+  const lines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  const out = [];
+  for (const line of lines) {
+    const obj = JSON.parse(line);
+    out.push(normalizeEvent(obj));
+  }
+  return out;
+}
+function readCsv(filePath) {
+  const raw = import_fs.default.readFileSync(filePath, "utf8");
+  const records = (0, import_sync.parse)(raw, { columns: true, skip_empty_lines: true, trim: true });
+  return records.map((r) => normalizeEvent(r));
+}
+function toNum(x, def = 0) {
+  const n = Number(x);
+  return Number.isFinite(n) ? n : def;
+}
+function normalizeEvent(x) {
+  const inputTokens = x.input_tokens ?? x.prompt_tokens;
+  const outputTokens = x.output_tokens ?? x.completion_tokens;
+  const featureTag = x.feature_tag ?? x?.meta?.feature_tag ?? x.endpoint ?? "";
+  const retries = x.retries ?? (x.attempt !== void 0 ? Math.max(0, toNum(x.attempt) - 1) : 0);
+  const billed = x.billed_cost ?? x.cost_usd;
+  return {
+    ts: String(x.ts ?? ""),
+    provider: String(x.provider ?? "").toLowerCase(),
+    model: String(x.model ?? ""),
+    input_tokens: toNum(inputTokens),
+    output_tokens: toNum(outputTokens),
+    feature_tag: String(featureTag ?? ""),
+    retries: toNum(retries),
+    status: String(x.status ?? ""),
+    billed_cost: billed === void 0 || billed === "" ? void 0 : toNum(billed),
+    trace_id: x.trace_id ? String(x.trace_id) : void 0,
+    request_id: x.request_id ? String(x.request_id) : void 0,
+    attempt: x.attempt === void 0 ? void 0 : toNum(x.attempt),
+    endpoint: x.endpoint ? String(x.endpoint) : void 0
+  };
+}
+function isCsvPath(p) {
+  return import_path.default.extname(p).toLowerCase() === ".csv";
+}
+var import_fs, import_path, import_sync;
+var init_io = __esm({
+  "src/io.ts"() {
+    "use strict";
+    import_fs = __toESM(require("fs"));
+    import_path = __toESM(require("path"));
+    import_sync = require("csv-parse/sync");
+  }
+});
 
 // src/cost.ts
 function getRates(rt, provider, model) {
@@ -1364,80 +1430,121 @@ var init_dashboard = __esm({
   }
 });
 
-// src/cli.ts
-var import_fs8 = __toESM(require("fs"));
-var import_path8 = __toESM(require("path"));
-var import_commander = require("commander");
-
-// src/io.ts
-var import_fs = __toESM(require("fs"));
-var import_path = __toESM(require("path"));
-var import_sync = require("csv-parse/sync");
-function ensureDir(p) {
-  import_fs.default.mkdirSync(p, { recursive: true });
+// src/rates-util.ts
+function loadRateTableFromDistPath() {
+  const p = import_path8.default.join(__dirname, "..", "rates", "rate_table.json");
+  return JSON.parse(import_fs8.default.readFileSync(p, "utf8"));
 }
-function readJsonl(filePath) {
-  const raw = import_fs.default.readFileSync(filePath, "utf8");
-  const lines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
-  const out = [];
-  for (const line of lines) {
-    const obj = JSON.parse(line);
-    out.push(normalizeEvent(obj));
+var import_fs8, import_path8;
+var init_rates_util = __esm({
+  "src/rates-util.ts"() {
+    "use strict";
+    import_fs8 = __toESM(require("fs"));
+    import_path8 = __toESM(require("path"));
   }
-  return out;
+});
+
+// src/quickstart.ts
+var quickstart_exports = {};
+__export(quickstart_exports, {
+  runQuickstart: () => runQuickstart,
+  seedDemoUsage: () => seedDemoUsage
+});
+function seedDemoUsage(outDir) {
+  import_fs9.default.mkdirSync(outDir, { recursive: true });
+  const p = import_path9.default.join(outDir, "usage.jsonl");
+  const now = Date.now();
+  const lines = [];
+  for (let i = 0; i < 60; i++) {
+    lines.push({
+      ts: new Date(now - i * 6e4).toISOString(),
+      provider: "openai",
+      model: i % 4 === 0 ? "gpt-5.2" : "gpt-5-mini",
+      endpoint: "responses",
+      attempt: 1,
+      trace_id: "demo-" + i,
+      status: "ok",
+      prompt_tokens: 1e4 + i % 10 * 1e3,
+      completion_tokens: 1200 + i % 5 * 200,
+      meta: { feature_tag: i % 2 ? "summarize" : "coding" }
+    });
+  }
+  import_fs9.default.writeFileSync(p, lines.map((x) => JSON.stringify(x)).join("\n") + "\n");
+  return p;
 }
-function readCsv(filePath) {
-  const raw = import_fs.default.readFileSync(filePath, "utf8");
-  const records = (0, import_sync.parse)(raw, { columns: true, skip_empty_lines: true, trim: true });
-  return records.map((r) => normalizeEvent(r));
+function runQuickstart(cwd, opts) {
+  const outDir = import_path9.default.join(cwd, "aiopt-output");
+  const usagePath = seedDemoUsage(outDir);
+  const rt = loadRateTableFromDistPath();
+  const { readJsonl: readJsonl2 } = (init_io(), __toCommonJS(io_exports));
+  const events = readJsonl2(usagePath);
+  const { analysis, savings, policy, meta } = analyze(rt, events);
+  import_fs9.default.writeFileSync(import_path9.default.join(outDir, "analysis.json"), JSON.stringify(analysis, null, 2));
+  import_fs9.default.writeFileSync(import_path9.default.join(outDir, "report.json"), JSON.stringify({
+    version: 3,
+    generated_at: (/* @__PURE__ */ new Date()).toISOString(),
+    confidence: analysis.unknown_models?.length ? "MEDIUM" : "HIGH",
+    warnings: [],
+    assumptions: { quickstart: true },
+    summary: {
+      total_cost_usd: analysis.total_cost,
+      estimated_savings_usd: savings.estimated_savings_total,
+      routing_savings_usd: savings.estimated_savings_routing,
+      context_savings_usd: savings.estimated_savings_context,
+      retry_waste_usd: savings.retry_waste
+    },
+    top: {
+      by_model: analysis.by_model_top,
+      by_feature: analysis.by_feature_top
+    },
+    unknown_models: analysis.unknown_models || [],
+    notes: []
+  }, null, 2));
+  import_fs9.default.writeFileSync(import_path9.default.join(outDir, "cost-policy.json"), JSON.stringify(policy, null, 2));
+  import_fs9.default.writeFileSync(import_path9.default.join(outDir, "report.md"), "# AIOpt quickstart demo\n\nThis is a demo report generated by `aiopt quickstart --demo`.\n");
+  const r = runGuard(rt, {
+    baselineEvents: events,
+    candidate: {
+      contextMultiplier: 1.2,
+      callMultiplier: 5,
+      budgetMonthlyUsd: opts.budgetMonthlyUsd
+    }
+  });
+  return { usagePath, outDir, guard: r, port: opts.port };
 }
-function toNum(x, def = 0) {
-  const n = Number(x);
-  return Number.isFinite(n) ? n : def;
-}
-function normalizeEvent(x) {
-  const inputTokens = x.input_tokens ?? x.prompt_tokens;
-  const outputTokens = x.output_tokens ?? x.completion_tokens;
-  const featureTag = x.feature_tag ?? x?.meta?.feature_tag ?? x.endpoint ?? "";
-  const retries = x.retries ?? (x.attempt !== void 0 ? Math.max(0, toNum(x.attempt) - 1) : 0);
-  const billed = x.billed_cost ?? x.cost_usd;
-  return {
-    ts: String(x.ts ?? ""),
-    provider: String(x.provider ?? "").toLowerCase(),
-    model: String(x.model ?? ""),
-    input_tokens: toNum(inputTokens),
-    output_tokens: toNum(outputTokens),
-    feature_tag: String(featureTag ?? ""),
-    retries: toNum(retries),
-    status: String(x.status ?? ""),
-    billed_cost: billed === void 0 || billed === "" ? void 0 : toNum(billed),
-    trace_id: x.trace_id ? String(x.trace_id) : void 0,
-    request_id: x.request_id ? String(x.request_id) : void 0,
-    attempt: x.attempt === void 0 ? void 0 : toNum(x.attempt),
-    endpoint: x.endpoint ? String(x.endpoint) : void 0
-  };
-}
-function isCsvPath(p) {
-  return import_path.default.extname(p).toLowerCase() === ".csv";
-}
+var import_fs9, import_path9;
+var init_quickstart = __esm({
+  "src/quickstart.ts"() {
+    "use strict";
+    import_fs9 = __toESM(require("fs"));
+    import_path9 = __toESM(require("path"));
+    init_scan();
+    init_rates_util();
+    init_guard();
+  }
+});
 
 // src/cli.ts
+var import_fs10 = __toESM(require("fs"));
+var import_path10 = __toESM(require("path"));
+var import_commander = require("commander");
+init_io();
 init_scan();
 var program = new import_commander.Command();
 var DEFAULT_INPUT = "./aiopt-output/usage.jsonl";
 var DEFAULT_OUTPUT_DIR = "./aiopt-output";
 function loadRateTable() {
-  const p = import_path8.default.join(__dirname, "..", "rates", "rate_table.json");
-  return JSON.parse(import_fs8.default.readFileSync(p, "utf8"));
+  const p = import_path10.default.join(__dirname, "..", "rates", "rate_table.json");
+  return JSON.parse(import_fs10.default.readFileSync(p, "utf8"));
 }
 program.name("aiopt").description("AI \uBE44\uC6A9 \uC790\uB3D9 \uC808\uAC10 \uC778\uD504\uB77C \u2014 \uC11C\uBC84 \uC5C6\uB294 \uB85C\uCEEC CLI MVP").version(require_package().version);
 program.command("init").description("aiopt-input/ \uBC0F \uC0D8\uD50C usage.jsonl, aiopt-output/ \uC0DD\uC131").action(() => {
   ensureDir("./aiopt-input");
   ensureDir("./aiopt-output");
-  const sampleSrc = import_path8.default.join(__dirname, "..", "samples", "sample_usage.jsonl");
-  const dst = import_path8.default.join("./aiopt-input", "usage.jsonl");
-  if (!import_fs8.default.existsSync(dst)) {
-    import_fs8.default.copyFileSync(sampleSrc, dst);
+  const sampleSrc = import_path10.default.join(__dirname, "..", "samples", "sample_usage.jsonl");
+  const dst = import_path10.default.join("./aiopt-input", "usage.jsonl");
+  if (!import_fs10.default.existsSync(dst)) {
+    import_fs10.default.copyFileSync(sampleSrc, dst);
     console.log("Created ./aiopt-input/usage.jsonl (sample)");
   } else {
     console.log("Exists ./aiopt-input/usage.jsonl (skip)");
@@ -1447,7 +1554,7 @@ program.command("init").description("aiopt-input/ \uBC0F \uC0D8\uD50C usage.json
 program.command("scan").description("\uC785\uB825 \uB85C\uADF8(JSONL/CSV)\uB97C \uBD84\uC11D\uD558\uACE0 report.md/report.json + patches\uAE4C\uC9C0 \uC0DD\uC131").option("--input <path>", "input file path (default: ./aiopt-output/usage.jsonl)", DEFAULT_INPUT).option("--out <dir>", "output dir (default: ./aiopt-output)", DEFAULT_OUTPUT_DIR).action(async (opts) => {
   const inputPath = String(opts.input);
   const outDir = String(opts.out);
-  if (!import_fs8.default.existsSync(inputPath)) {
+  if (!import_fs10.default.existsSync(inputPath)) {
     console.error(`Input not found: ${inputPath}`);
     process.exit(1);
   }
@@ -1463,7 +1570,7 @@ program.command("scan").description("\uC785\uB825 \uB85C\uADF8(JSONL/CSV)\uB97C 
     const tag = f.status === "no-issue" ? "(no issue detected)" : `($${Math.round(f.impact_usd * 100) / 100})`;
     console.log(`${i + 1}) ${f.title} ${tag}`);
   });
-  console.log(`Report: ${import_path8.default.join(outDir, "report.md")}`);
+  console.log(`Report: ${import_path10.default.join(outDir, "report.md")}`);
 });
 program.command("policy").description("\uB9C8\uC9C0\uB9C9 scan \uACB0\uACFC \uAE30\uBC18\uC73C\uB85C cost-policy.json\uB9CC \uC7AC\uC0DD\uC131 (MVP: scan\uACFC \uB3D9\uC77C \uB85C\uC9C1)").option("--input <path>", "input file path (default: ./aiopt-input/usage.jsonl)", DEFAULT_INPUT).option("--out <dir>", "output dir (default: ./aiopt-output)", DEFAULT_OUTPUT_DIR).action((opts) => {
   const inputPath = String(opts.input);
@@ -1473,7 +1580,7 @@ program.command("policy").description("\uB9C8\uC9C0\uB9C9 scan \uACB0\uACFC \uAE
   const { policy } = analyze(rt, events);
   policy.generated_from.input = inputPath;
   ensureDir(outDir);
-  import_fs8.default.writeFileSync(import_path8.default.join(outDir, "cost-policy.json"), JSON.stringify(policy, null, 2));
+  import_fs10.default.writeFileSync(import_path10.default.join(outDir, "cost-policy.json"), JSON.stringify(policy, null, 2));
   console.log(`OK: ${outDir}/cost-policy.json`);
 });
 program.command("install").description("Install AIOpt guardrails: create aiopt/ + policies + usage.jsonl").option("--force", "overwrite existing files").option("--seed-sample", "seed 1 sample line into aiopt-output/usage.jsonl").action(async (opts) => {
@@ -1513,7 +1620,7 @@ licenseCmd.command("verify").option("--path <path>", "license.json path (default
   const { DEFAULT_PUBLIC_KEY_PEM: DEFAULT_PUBLIC_KEY_PEM2, defaultLicensePath: defaultLicensePath2, readLicenseFile: readLicenseFile2, verifyLicenseKey: verifyLicenseKey2 } = await Promise.resolve().then(() => (init_license(), license_exports));
   const p = opts.path ? String(opts.path) : defaultLicensePath2(process.cwd());
   const pub = process.env.AIOPT_LICENSE_PUBKEY || DEFAULT_PUBLIC_KEY_PEM2;
-  if (!import_fs8.default.existsSync(p)) {
+  if (!import_fs10.default.existsSync(p)) {
     console.error(`FAIL: license file not found: ${p}`);
     process.exit(3);
   }
@@ -1530,7 +1637,7 @@ licenseCmd.command("status").option("--path <path>", "license.json path (default
   const { DEFAULT_PUBLIC_KEY_PEM: DEFAULT_PUBLIC_KEY_PEM2, defaultLicensePath: defaultLicensePath2, readLicenseFile: readLicenseFile2, verifyLicenseKey: verifyLicenseKey2 } = await Promise.resolve().then(() => (init_license(), license_exports));
   const p = opts.path ? String(opts.path) : defaultLicensePath2(process.cwd());
   const pub = process.env.AIOPT_LICENSE_PUBKEY || DEFAULT_PUBLIC_KEY_PEM2;
-  if (!import_fs8.default.existsSync(p)) {
+  if (!import_fs10.default.existsSync(p)) {
     console.log("NO_LICENSE");
     process.exit(2);
   }
@@ -1552,11 +1659,11 @@ program.command("guard").description("Pre-deploy guardrail: compare baseline usa
     console.error("FAIL: diff mode requires both --baseline and --candidate");
     process.exit(3);
   }
-  if (!import_fs8.default.existsSync(baselinePath)) {
+  if (!import_fs10.default.existsSync(baselinePath)) {
     console.error(`FAIL: baseline not found: ${baselinePath}`);
     process.exit(3);
   }
-  if (candidatePath && !import_fs8.default.existsSync(candidatePath)) {
+  if (candidatePath && !import_fs10.default.existsSync(candidatePath)) {
     console.error(`FAIL: candidate not found: ${candidatePath}`);
     process.exit(3);
   }
@@ -1578,10 +1685,10 @@ program.command("guard").description("Pre-deploy guardrail: compare baseline usa
   });
   console.log(r.message);
   try {
-    const outDir = import_path8.default.resolve(DEFAULT_OUTPUT_DIR);
-    import_fs8.default.mkdirSync(outDir, { recursive: true });
-    import_fs8.default.writeFileSync(import_path8.default.join(outDir, "guard-last.txt"), r.message);
-    import_fs8.default.writeFileSync(import_path8.default.join(outDir, "guard-last.json"), JSON.stringify({ ts: (/* @__PURE__ */ new Date()).toISOString(), exitCode: r.exitCode }, null, 2));
+    const outDir = import_path10.default.resolve(DEFAULT_OUTPUT_DIR);
+    import_fs10.default.mkdirSync(outDir, { recursive: true });
+    import_fs10.default.writeFileSync(import_path10.default.join(outDir, "guard-last.txt"), r.message);
+    import_fs10.default.writeFileSync(import_path10.default.join(outDir, "guard-last.json"), JSON.stringify({ ts: (/* @__PURE__ */ new Date()).toISOString(), exitCode: r.exitCode }, null, 2));
   } catch {
   }
   process.exit(r.exitCode);
@@ -1589,6 +1696,29 @@ program.command("guard").description("Pre-deploy guardrail: compare baseline usa
 program.command("dashboard").description("Local dashboard (localhost only): view last guard + last scan outputs").option("--port <n>", "port (default: 3010)", (v) => Number(v), 3010).action(async (opts) => {
   const { startDashboard: startDashboard2 } = await Promise.resolve().then(() => (init_dashboard(), dashboard_exports));
   await startDashboard2(process.cwd(), { port: Number(opts.port || 3010) });
+});
+program.command("quickstart").description("1-minute demo: generate sample usage, run scan+guard, and print dashboard URL").option("--demo", "run demo workflow (writes to ./aiopt-output)").option("--port <n>", "dashboard port (default: 3010)", (v) => Number(v), 3010).option("--budget-monthly <usd>", "optional budget gate for the demo guard", (v) => Number(v)).action(async (opts) => {
+  if (!opts.demo) {
+    console.error("FAIL: quickstart requires --demo");
+    process.exit(3);
+  }
+  const { runQuickstart: runQuickstart2 } = await Promise.resolve().then(() => (init_quickstart(), quickstart_exports));
+  const r = runQuickstart2(process.cwd(), { port: Number(opts.port || 3010), budgetMonthlyUsd: opts.budgetMonthly });
+  console.log("OK: demo usage written:", r.usagePath);
+  console.log("--- guard ---");
+  console.log(r.guard.message);
+  try {
+    const fs11 = await import("fs");
+    const path11 = await import("path");
+    fs11.mkdirSync(r.outDir, { recursive: true });
+    fs11.writeFileSync(path11.join(r.outDir, "guard-last.txt"), r.guard.message);
+    fs11.writeFileSync(path11.join(r.outDir, "guard-last.json"), JSON.stringify({ ts: (/* @__PURE__ */ new Date()).toISOString(), exitCode: r.guard.exitCode }, null, 2));
+  } catch {
+  }
+  console.log("--- next ---");
+  console.log(`Run: npx aiopt dashboard --port ${r.port}`);
+  console.log(`Open: http://127.0.0.1:${r.port}/`);
+  process.exit(r.guard.exitCode);
 });
 program.parse(process.argv);
 //# sourceMappingURL=cli.js.map

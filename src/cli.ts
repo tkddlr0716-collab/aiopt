@@ -272,4 +272,34 @@ program
     await startDashboard(process.cwd(), { port: Number(opts.port || 3010) });
   });
 
+program
+  .command('quickstart')
+  .description('1-minute demo: generate sample usage, run scan+guard, and print dashboard URL')
+  .option('--demo', 'run demo workflow (writes to ./aiopt-output)')
+  .option('--port <n>', 'dashboard port (default: 3010)', (v) => Number(v), 3010)
+  .option('--budget-monthly <usd>', 'optional budget gate for the demo guard', (v) => Number(v))
+  .action(async (opts) => {
+    if (!opts.demo) {
+      console.error('FAIL: quickstart requires --demo');
+      process.exit(3);
+    }
+    const { runQuickstart } = await import('./quickstart');
+    const r = runQuickstart(process.cwd(), { port: Number(opts.port || 3010), budgetMonthlyUsd: opts.budgetMonthly });
+    console.log('OK: demo usage written:', r.usagePath);
+    console.log('--- guard ---');
+    console.log(r.guard.message);
+    // persist guard-last for dashboard
+    try {
+      const fs = await import('fs');
+      const path = await import('path');
+      fs.mkdirSync(r.outDir, { recursive: true });
+      fs.writeFileSync(path.join(r.outDir, 'guard-last.txt'), r.guard.message);
+      fs.writeFileSync(path.join(r.outDir, 'guard-last.json'), JSON.stringify({ ts: new Date().toISOString(), exitCode: r.guard.exitCode }, null, 2));
+    } catch {}
+    console.log('--- next ---');
+    console.log(`Run: npx aiopt dashboard --port ${r.port}`);
+    console.log(`Open: http://127.0.0.1:${r.port}/`);
+    process.exit(r.guard.exitCode);
+  });
+
 program.parse(process.argv);
