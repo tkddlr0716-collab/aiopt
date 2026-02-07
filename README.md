@@ -4,6 +4,11 @@
 [![ci](https://github.com/tkddlr0716-collab/aiopt/actions/workflows/ci.yml/badge.svg)](https://github.com/tkddlr0716-collab/aiopt/actions/workflows/ci.yml)
 [![license](https://img.shields.io/npm/l/aiopt)](./LICENSE)
 
+Links:
+- Landing: https://tkddlr0716-collab.github.io/aiopt/
+- Buy: https://tkddlr0716-collab.github.io/aiopt/buy.html
+- Docs: ./docs/
+
 AIOpt is a **pre-deploy cost accident guardrail** for LLM changes.
 - baseline = your observed local usage log (`usage.jsonl` / `usage.csv`)
 - candidate = estimated change (model/provider/context/output/retry/traffic deltas)
