@@ -1,0 +1,30 @@
+{
+  "version": "2026-02-07-a",
+  "date": "2026-02-07",
+  "currency": "USD",
+  "units": "per_1M_tokens",
+  "notes": "MVP subset. Unknown models are treated as estimated.",
+  "providers": {
+    "openai": {
+      "default_estimated": { "input": 1.0, "output": 4.0, "cached_input": 0.1 },
+      "models": {
+        "gpt-5-mini": { "input": 0.25, "output": 2.0, "cached_input": 0.025 },
+        "gpt-5.2": { "input": 1.75, "output": 14.0, "cached_input": 0.175 }
+      }
+    },
+    "anthropic": {
+      "default_estimated": { "input": 3.0, "output": 15.0, "cached_input": 0.0 },
+      "models": {
+        "claude-sonnet": { "input": 3.0, "output": 15.0, "cached_input": 0.0 },
+        "claude-haiku": { "input": 1.0, "output": 5.0, "cached_input": 0.0 }
+      }
+    },
+    "gemini": {
+      "default_estimated": { "input": 0.5, "output": 1.5, "cached_input": 0.0 },
+      "models": {
+        "gemini-1.5-flash": { "input": 0.35, "output": 1.05, "cached_input": 0.0 },
+        "gemini-1.5-pro": { "input": 1.25, "output": 5.0, "cached_input": 0.0 }
+      }
+    }
+  }
+}

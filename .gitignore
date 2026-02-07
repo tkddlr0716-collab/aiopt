@@ -1,0 +1,6 @@
+node_modules/
+dist/*.map
+aiopt-*.tgz
+aiopt-input/
+aiopt-output/
+.DS_Store

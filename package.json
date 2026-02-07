@@ -1,0 +1,30 @@
+{
+  "name": "aiopt",
+  "version": "0.0.1",
+  "description": "Serverless local CLI MVP for AI API cost analysis & cost-policy generation",
+  "bin": {
+    "aiopt": "dist/cli.js"
+  },
+  "type": "commonjs",
+  "main": "dist/cli.js",
+  "files": [
+    "dist",
+    "rates",
+    "samples",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "node --enable-source-maps dist/cli.js",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "commander": "^14.0.0",
+    "csv-parse": "^6.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.2"
+  }
+}
