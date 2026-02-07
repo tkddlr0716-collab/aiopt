@@ -16,6 +16,37 @@ Exit codes:
 - `2` WARN (cost accident possible)
 - `3` FAIL (merge-blocking)
 
+## Product definition (Guardrail)
+AIOpt is a **pre-deploy cost accident guardrail** for LLM changes.
+
+- **Baseline** = your observed usage log (`usage.jsonl` / `usage.csv`)
+- **Candidate** = an estimated change (model/provider/context/output/retry deltas)
+- Output = a deterministic verdict + monthly impact estimate + confidence
+- Designed for CI: fast, local, no network calls (beyond downloading the npm package)
+
+## CI integration (GitHub Actions)
+You can run `aiopt guard` in CI to catch accidental cost blow-ups before merge.
+
+### 1) Non-blocking (report only)
+
+```yaml
+- name: AI cost guard (non-blocking)
+  run: |
+    npx aiopt guard --input ./aiopt-output/usage.jsonl --context-mult 1.2 || true
+```
+
+### 2) Merge-blocking (fail on high risk)
+
+```yaml
+- name: AI cost guard (blocking)
+  run: |
+    npx aiopt guard --input ./aiopt-output/usage.jsonl --context-mult 1.2
+```
+
+Tips:
+- Keep a small representative baseline log in the repo (or in CI artifacts) for deterministic checks.
+- Use the wrapper (`npx aiopt install --force`) to record baseline locally during dev.
+
 AIOpt is a **serverless local Guardrail CLI**.
 - No signup, no upload, no dashboard, no server deployment.
 - Reads local JSONL/CSV → writes local outputs.

@@ -18,6 +18,42 @@ npx aiopt scan
 - 기본 입력: `./aiopt-output/usage.jsonl`
 - 기본 출력: `./aiopt-output/report.md` + `./aiopt-output/report.json` (+ `./aiopt-output/patches/*`)
 
+
+## Guard (pre-deploy cost accident check)
+
+`scan`은 "무엇을 바꿔야 하는지"를 제안합니다. `guard`는 **배포 전에 비용 사고(월 $10/$100+) 가능성**을 빠르게 경고합니다.
+
+```bash
+# baseline: aiopt-output/usage.jsonl (기본)
+# candidate: 예상 변화량(모델/컨텍스트/출력/재시도 등)
+npx aiopt guard --context-mult 1.2
+
+# 모델 변경 시뮬레이션
+npx aiopt guard --provider openai --model gpt-5.2
+
+# 재시도 증가(예: 타임아웃으로 retries +1)
+npx aiopt guard --retries-delta 1
+```
+
+Exit codes:
+- 0: OK
+- 2: WARN (cost accident possible)
+- 3: FAIL (merge-blocking)
+
+### CI 예시 (GitHub Actions)
+
+비차단(리포트만):
+```yaml
+- name: AI cost guard (non-blocking)
+  run: npx aiopt guard --context-mult 1.2 || true
+```
+
+차단(High risk면 실패):
+```yaml
+- name: AI cost guard (blocking)
+  run: npx aiopt guard --context-mult 1.2
+```
+
 ## 3-minute before/after (Node.js)
 
 ### Before
