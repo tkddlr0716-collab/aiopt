@@ -481,7 +481,7 @@ var require_package = __commonJS({
   "package.json"(exports2, module2) {
     module2.exports = {
       name: "aiopt",
-      version: "0.2.7",
+      version: "0.2.8",
       description: "Pre-deploy LLM cost accident guardrail (serverless local CLI)",
       bin: {
         aiopt: "dist/cli.js"
@@ -1818,13 +1818,14 @@ program.command("dashboard").description("Local dashboard (localhost only): view
   const { startDashboard: startDashboard2 } = await Promise.resolve().then(() => (init_dashboard(), dashboard_exports));
   await startDashboard2(process.cwd(), { port: Number(opts.port || 3010) });
 });
-program.command("quickstart").description("1-minute demo: generate sample usage, run scan+guard, and print dashboard URL").option("--demo", "run demo workflow (writes to ./aiopt-output)").option("--port <n>", "dashboard port (default: 3010)", (v) => Number(v), 3010).option("--budget-monthly <usd>", "optional budget gate for the demo guard", (v) => Number(v)).action(async (opts) => {
+program.command("quickstart").description("1-minute demo: generate sample usage, run scan+guard, and print dashboard URL").option("--demo", "run demo workflow (writes to ./aiopt-output)").option("--port <n>", "dashboard port (default: 3010)", (v) => Number(v), 3010).option("--budget-monthly <usd>", "optional budget gate for the demo guard", (v) => Number(v)).option("--serve", "start the local dashboard after generating demo outputs").option("--open", "best-effort open browser to the dashboard URL").action(async (opts) => {
   if (!opts.demo) {
     console.error("FAIL: quickstart requires --demo");
     process.exit(3);
   }
+  const port = Number(opts.port || 3010);
   const { runQuickstart: runQuickstart2 } = await Promise.resolve().then(() => (init_quickstart(), quickstart_exports));
-  const r = runQuickstart2(process.cwd(), { port: Number(opts.port || 3010), budgetMonthlyUsd: opts.budgetMonthly });
+  const r = runQuickstart2(process.cwd(), { port, budgetMonthlyUsd: opts.budgetMonthly });
   console.log("OK: demo usage written:", r.usagePath);
   console.log("--- guard ---");
   console.log(r.guard.message);
@@ -1840,8 +1841,24 @@ program.command("quickstart").description("1-minute demo: generate sample usage,
   } catch {
   }
   console.log("--- next ---");
-  console.log(`Run: npx aiopt dashboard --port ${r.port}`);
-  console.log(`Open: http://127.0.0.1:${r.port}/`);
+  console.log(`Open: http://127.0.0.1:${port}/`);
+  if (opts.serve) {
+    const { startDashboard: startDashboard2 } = await Promise.resolve().then(() => (init_dashboard(), dashboard_exports));
+    if (opts.open) {
+      try {
+        const { execSync } = await import("child_process");
+        const url = `http://127.0.0.1:${port}/`;
+        if (process.platform === "darwin") execSync(`open "${url}"`);
+        else if (process.platform === "win32") execSync(`cmd.exe /c start "" "${url}"`);
+        else execSync(`xdg-open "${url}"`);
+      } catch {
+      }
+    }
+    console.log("Serving dashboard. Press CTRL+C to stop.");
+    await startDashboard2(process.cwd(), { port });
+    return;
+  }
+  console.log(`Run: npx aiopt dashboard --port ${port}`);
   process.exit(r.guard.exitCode);
 });
 program.parse(process.argv);

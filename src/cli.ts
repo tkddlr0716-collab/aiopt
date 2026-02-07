@@ -281,16 +281,20 @@ program
   .option('--demo', 'run demo workflow (writes to ./aiopt-output)')
   .option('--port <n>', 'dashboard port (default: 3010)', (v) => Number(v), 3010)
   .option('--budget-monthly <usd>', 'optional budget gate for the demo guard', (v) => Number(v))
+  .option('--serve', 'start the local dashboard after generating demo outputs')
+  .option('--open', 'best-effort open browser to the dashboard URL')
   .action(async (opts) => {
     if (!opts.demo) {
       console.error('FAIL: quickstart requires --demo');
       process.exit(3);
     }
+    const port = Number(opts.port || 3010);
     const { runQuickstart } = await import('./quickstart');
-    const r = runQuickstart(process.cwd(), { port: Number(opts.port || 3010), budgetMonthlyUsd: opts.budgetMonthly });
+    const r = runQuickstart(process.cwd(), { port, budgetMonthlyUsd: opts.budgetMonthly });
     console.log('OK: demo usage written:', r.usagePath);
     console.log('--- guard ---');
     console.log(r.guard.message);
+
     // persist guard-last + append guard history for dashboard
     try {
       const fs = await import('fs');
@@ -302,9 +306,27 @@ program
       const histLine = JSON.stringify({ ts, exitCode: r.guard.exitCode, mode: 'quickstart', baseline: r.usagePath, candidate: null }) + '\n';
       fs.appendFileSync(path.join(r.outDir, 'guard-history.jsonl'), histLine);
     } catch {}
+
     console.log('--- next ---');
-    console.log(`Run: npx aiopt dashboard --port ${r.port}`);
-    console.log(`Open: http://127.0.0.1:${r.port}/`);
+    console.log(`Open: http://127.0.0.1:${port}/`);
+
+    if (opts.serve) {
+      const { startDashboard } = await import('./dashboard');
+      if (opts.open) {
+        try {
+          const { execSync } = await import('child_process');
+          const url = `http://127.0.0.1:${port}/`;
+          if (process.platform === 'darwin') execSync(`open "${url}"`);
+          else if (process.platform === 'win32') execSync(`cmd.exe /c start "" "${url}"`);
+          else execSync(`xdg-open "${url}"`);
+        } catch {}
+      }
+      console.log('Serving dashboard. Press CTRL+C to stop.');
+      await startDashboard(process.cwd(), { port });
+      return;
+    }
+
+    console.log(`Run: npx aiopt dashboard --port ${port}`);
     process.exit(r.guard.exitCode);
   });
 
