@@ -415,7 +415,7 @@ var require_package = __commonJS({
   "package.json"(exports2, module2) {
     module2.exports = {
       name: "aiopt",
-      version: "0.2.5",
+      version: "0.2.6",
       description: "Pre-deploy LLM cost accident guardrail (serverless local CLI)",
       bin: {
         aiopt: "dist/cli.js"
@@ -434,7 +434,8 @@ var require_package = __commonJS({
         prepack: "npm run build",
         "test:npx": `npm pack --silent && node -e "const fs=require('fs');const p=fs.readdirSync('.').find(f=>/^aiopt-.*\\.tgz$/.test(f)); if(!p) throw new Error('tgz not found'); console.log('tgz',p);" && npx --yes ./$(ls -1 aiopt-*.tgz | tail -n 1) install --force && npx --yes ./$(ls -1 aiopt-*.tgz | tail -n 1) doctor && npx --yes ./$(ls -1 aiopt-*.tgz | tail -n 1) scan && test -f ./aiopt-output/report.md && echo OK`,
         "test:guard": "npm run build --silent && node scripts/test-guard.js",
-        "test:license": "npm run build --silent && node scripts/test-license.js"
+        "test:license": "npm run build --silent && node scripts/test-license.js",
+        "test:landing": "node scripts/test-landing.js"
       },
       dependencies: {
         commander: "^14.0.0",
