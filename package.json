@@ -1,6 +1,6 @@
 {
   "name": "aiopt",
-  "version": "0.2.1",
+  "version": "0.2.3",
   "description": "Serverless local CLI MVP for AI API cost analysis & cost-policy generation",
   "bin": {
     "aiopt": "dist/cli.js"

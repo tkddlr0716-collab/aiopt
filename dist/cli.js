@@ -33,6 +33,59 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
+// src/cost.ts
+function getRates(rt, provider, model) {
+  const prov = String(provider || "").toLowerCase();
+  if (prov === "local" || prov === "ollama" || prov === "vllm") {
+    return { kind: "official", input: 0, output: 0 };
+  }
+  const p = rt.providers[prov];
+  if (!p) return null;
+  const m = p.models[model];
+  if (m) return { kind: "official", input: m.input, output: m.output };
+  return { kind: "estimated", input: p.default_estimated.input, output: p.default_estimated.output };
+}
+function costOfEvent(rt, ev) {
+  if (typeof ev.billed_cost === "number" && Number.isFinite(ev.billed_cost)) {
+    return {
+      cost: ev.billed_cost,
+      used_rate: {
+        kind: "billed_cost",
+        provider: ev.provider,
+        model: ev.model,
+        input_per_m: 0,
+        output_per_m: 0
+      }
+    };
+  }
+  const r = getRates(rt, ev.provider, ev.model);
+  if (!r) {
+    const input_per_m = 1;
+    const output_per_m = 4;
+    const cost2 = ev.input_tokens / 1e6 * input_per_m + ev.output_tokens / 1e6 * output_per_m;
+    return {
+      cost: cost2,
+      used_rate: { kind: "estimated", provider: String(ev.provider || "").toLowerCase(), model: ev.model, input_per_m, output_per_m }
+    };
+  }
+  const cost = ev.input_tokens / 1e6 * r.input + ev.output_tokens / 1e6 * r.output;
+  return {
+    cost,
+    used_rate: {
+      kind: r.kind,
+      provider: ev.provider,
+      model: ev.model,
+      input_per_m: r.input,
+      output_per_m: r.output
+    }
+  };
+}
+var init_cost = __esm({
+  "src/cost.ts"() {
+    "use strict";
+  }
+});
+
 // src/solutions.ts
 var solutions_exports = {};
 __export(solutions_exports, {
@@ -111,12 +164,258 @@ var init_solutions = __esm({
   }
 });
 
+// src/scan.ts
+function topN(map, n) {
+  return [...map.entries()].map(([key, v]) => ({ key, cost: v.cost, events: v.events })).sort((a, b) => b.cost - a.cost).slice(0, n);
+}
+function analyze(rt, events) {
+  const byModel = /* @__PURE__ */ new Map();
+  const byFeature = /* @__PURE__ */ new Map();
+  const unknownModels = [];
+  const perEventCosts = [];
+  const isAttemptLog = events.some((e) => e.trace_id && String(e.trace_id).length > 0 || e.attempt !== void 0 && Number(e.attempt) > 0);
+  let baseTotal = 0;
+  let total = 0;
+  for (const ev of events) {
+    const cr = costOfEvent(rt, ev);
+    baseTotal += cr.cost;
+    if (isAttemptLog) {
+      total += cr.cost;
+    } else {
+      const retries = Math.max(0, Number(ev.retries || 0));
+      total += cr.cost * (1 + retries);
+    }
+    perEventCosts.push({ ev, cost: cr.cost });
+    const mk = `${ev.provider}:${ev.model}`;
+    const fk = ev.feature_tag || "(none)";
+    const mv = byModel.get(mk) || { cost: 0, events: 0 };
+    mv.cost += cr.cost;
+    mv.events += 1;
+    byModel.set(mk, mv);
+    const fv = byFeature.get(fk) || { cost: 0, events: 0 };
+    fv.cost += cr.cost;
+    fv.events += 1;
+    byFeature.set(fk, fv);
+    const rr = getRates(rt, ev.provider, ev.model);
+    if (!rr) {
+      unknownModels.push({ provider: ev.provider, model: ev.model, reason: "unknown provider (estimated)" });
+    } else if (rr.kind === "estimated") {
+      unknownModels.push({ provider: ev.provider, model: ev.model, reason: "unknown model (estimated)" });
+    }
+  }
+  const potByIdx = [];
+  for (const { ev, cost } of perEventCosts) {
+    const retries = Math.max(0, Number(ev.retries || 0));
+    const attempt = Number(ev.attempt || 1);
+    const total_i = isAttemptLog ? cost : cost * (1 + retries);
+    const waste_i = isAttemptLog ? attempt >= 2 ? cost : 0 : cost * retries;
+    let routing_i = 0;
+    if (ROUTE_TO_CHEAP_FEATURES.has(String(ev.feature_tag || "").toLowerCase())) {
+      const provider = ev.provider;
+      const p = rt.providers[provider];
+      if (p) {
+        const entries = Object.entries(p.models);
+        if (entries.length > 0) {
+          const cheapest = entries.map(([name, r]) => ({ name, score: (r.input + r.output) / 2, r })).sort((a, b) => a.score - b.score)[0];
+          const currentRate = getRates(rt, provider, ev.model);
+          if (currentRate && currentRate.kind !== "estimated") {
+            const currentCost = ev.input_tokens / 1e6 * currentRate.input + ev.output_tokens / 1e6 * currentRate.output;
+            const cheapCost = ev.input_tokens / 1e6 * cheapest.r.input + ev.output_tokens / 1e6 * cheapest.r.output;
+            const diff = (currentCost - cheapCost) * (1 + retries);
+            routing_i = Math.max(0, diff);
+          }
+        }
+      }
+    }
+    potByIdx.push({ routing: routing_i, context: 0, retry: waste_i, total: total_i, waste: waste_i });
+  }
+  const sortedIdx = [...events.map((e, i) => ({ i, input: Number(e.input_tokens || 0), ok: !isAttemptLog || Number(e.attempt || 1) === 1 }))].filter((x) => x.ok).sort((a, b) => b.input - a.input);
+  const k = Math.max(1, Math.floor(sortedIdx.length * 0.2));
+  const topIdx = new Set(sortedIdx.slice(0, k).map((x) => x.i));
+  for (let i = 0; i < events.length; i++) {
+    if (!topIdx.has(i)) continue;
+    const ev = events[i];
+    const retries = Math.max(0, Number(ev.retries || 0));
+    const r = getRates(rt, ev.provider, ev.model);
+    if (!r) continue;
+    const saveTokens = Number(ev.input_tokens || 0) * 0.25;
+    const multiplier = isAttemptLog ? 1 : 1 + retries;
+    const diff = saveTokens / 1e6 * r.input * multiplier;
+    potByIdx[i].context = Math.max(0, diff);
+  }
+  let routingSavings = 0;
+  let contextSavings = 0;
+  let retryWaste = 0;
+  for (const p of potByIdx) {
+    let remaining = p.total;
+    const rSave = Math.min(p.routing, remaining);
+    remaining -= rSave;
+    routingSavings += rSave;
+    const cSave = Math.min(p.context, remaining);
+    remaining -= cSave;
+    contextSavings += cSave;
+    const retrySave = Math.min(p.retry, remaining);
+    retryWaste += retrySave;
+  }
+  const estimatedSavingsTotal = routingSavings + contextSavings + retryWaste;
+  const guardedSavingsTotal = Math.min(estimatedSavingsTotal, total);
+  const analysis = {
+    total_cost: round22(total),
+    by_model_top: topN(byModel, 10).map((x) => ({ ...x, cost: round22(x.cost) })),
+    by_feature_top: topN(byFeature, 10).map((x) => ({ ...x, cost: round22(x.cost) })),
+    unknown_models: uniqUnknown(unknownModels),
+    rate_table_version: rt.version,
+    rate_table_date: rt.date
+  };
+  const savings = {
+    estimated_savings_total: round22(guardedSavingsTotal),
+    routing_savings: round22(routingSavings),
+    context_savings: round22(contextSavings),
+    retry_waste: round22(retryWaste),
+    notes: [
+      `a) \uBAA8\uB378 \uB77C\uC6B0\uD305 \uC808\uAC10(\uCD94\uC815): $${round22(routingSavings)}`,
+      `b) \uCEE8\uD14D\uC2A4\uD2B8 \uAC10\uCD95(\uCD94\uC815): $${round22(contextSavings)} (\uC0C1\uC704 20% input\uC5D0 25% \uAC10\uCD95 \uAC00\uC815)`,
+      `c) \uC7AC\uC2DC\uB3C4/\uC624\uB958 \uB0AD\uBE44(\uC0C1\uD55C \uC801\uC6A9): $${round22(retryWaste)} (retries \uAE30\uBC18)`
+    ]
+  };
+  const policy = buildPolicy(rt, events);
+  return { analysis, savings, policy, meta: { mode: isAttemptLog ? "attempt-log" : "legacy" } };
+}
+function buildPolicy(rt, events) {
+  const freq = /* @__PURE__ */ new Map();
+  for (const ev of events) freq.set(ev.provider, (freq.get(ev.provider) || 0) + 1);
+  const defaultProvider = [...freq.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || "openai";
+  const rules = [];
+  for (const provider of Object.keys(rt.providers)) {
+    const p = rt.providers[provider];
+    const entries = Object.entries(p.models);
+    if (entries.length === 0) continue;
+    const cheapest = entries.map(([name, r]) => ({ name, score: (r.input + r.output) / 2, r })).sort((a, b) => a.score - b.score)[0];
+    rules.push({
+      match: { provider, feature_tag_in: ["summarize", "classify", "translate"] },
+      action: { recommend_model: cheapest.name, reason: "cheap-feature routing" }
+    });
+  }
+  rules.push({ match: { model_unknown: true }, action: { keep: true, reason: "unknown model -> no policy applied" } });
+  return {
+    version: 1,
+    default_provider: defaultProvider,
+    rules,
+    budgets: { currency: rt.currency, notes: "MVP: budgets not enforced" },
+    generated_from: { rate_table_version: rt.version, input: "./aiopt-input/usage.jsonl" }
+  };
+}
+function uniqUnknown(list) {
+  const seen = /* @__PURE__ */ new Set();
+  const out = [];
+  for (const x of list) {
+    const k = `${x.provider}:${x.model}:${x.reason}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(x);
+  }
+  return out;
+}
+function round22(n) {
+  return Math.round(n * 100) / 100;
+}
+function writeOutputs(outDir, analysis, savings, policy, meta) {
+  const mode = meta?.mode || "legacy";
+  import_fs3.default.mkdirSync(outDir, { recursive: true });
+  import_fs3.default.writeFileSync(import_path3.default.join(outDir, "analysis.json"), JSON.stringify(analysis, null, 2));
+  const unknownCount = analysis.unknown_models?.length || 0;
+  const confidence = unknownCount === 0 ? "HIGH" : unknownCount <= 3 ? "MED" : "LOW";
+  const ratio = analysis.total_cost > 0 ? savings.estimated_savings_total / analysis.total_cost : 0;
+  const warnings = [];
+  if (ratio >= 0.9) warnings.push("estimated savings >= 90%");
+  if (unknownCount > 0) warnings.push("unknown models/providers detected (estimated pricing used)");
+  const reportJson = {
+    version: 3,
+    generated_at: (/* @__PURE__ */ new Date()).toISOString(),
+    confidence,
+    warnings,
+    assumptions: {
+      no_double_counting: "routing -> context -> retry allocation per-event with remaining-cost caps",
+      retry_cost_model: mode === "attempt-log" ? "attempt-log mode: total_cost is sum of attempt lines; retry_waste is sum of attempts>=2" : "legacy mode: total_cost includes retries as extra attempts (base_cost*(1+retries))",
+      context_model: "top 20% by input_tokens assume 25% input reduction",
+      estimated_pricing_note: unknownCount > 0 ? "some items use estimated rates; treat savings as a band" : "all items used known rates"
+    },
+    summary: {
+      total_cost_usd: analysis.total_cost,
+      estimated_savings_usd: savings.estimated_savings_total,
+      routing_savings_usd: savings.routing_savings,
+      context_savings_usd: savings.context_savings,
+      retry_waste_usd: savings.retry_waste
+    },
+    top: {
+      by_model: analysis.by_model_top,
+      by_feature: analysis.by_feature_top
+    },
+    unknown_models: analysis.unknown_models,
+    notes: savings.notes
+  };
+  import_fs3.default.writeFileSync(import_path3.default.join(outDir, "report.json"), JSON.stringify(reportJson, null, 2));
+  const ratioMd = analysis.total_cost > 0 ? savings.estimated_savings_total / analysis.total_cost : 0;
+  const warningsMd = [];
+  if (ratioMd >= 0.9) warningsMd.push("WARNING: estimated savings >= 90% \u2014 check overlap/missing rate table");
+  const reportMd = [
+    "# AIOpt Report",
+    "",
+    `- Total cost: $${analysis.total_cost}`,
+    `- Estimated savings: $${savings.estimated_savings_total} (guarded <= total_cost)`,
+    `- Confidence: ${confidence}`,
+    unknownCount > 0 ? `- Unknown models: ${unknownCount} (estimated pricing used)` : "- Unknown models: 0",
+    ...warningsMd.map((w) => `- ${w}`),
+    "",
+    "## ASSUMPTIONS",
+    "- No double-counting: routing \u2192 context \u2192 retry savings allocated per-event with remaining-cost caps.",
+    mode === "attempt-log" ? "- Retry cost model: attempt-log mode (total_cost=sum attempts, retry_waste=sum attempt>=2)." : "- Retry cost model: legacy mode (total_cost=base_cost*(1+retries)).",
+    "- Context savings: top 20% input_tokens events assume 25% input reduction.",
+    "",
+    "## WHAT TO CHANGE",
+    "1) Retry tuning \u2192 edit `aiopt/policies/retry.json`",
+    "2) Output cap \u2192 edit `aiopt/policies/output.json`",
+    "3) Routing rule \u2192 edit `aiopt/policies/routing.json`",
+    "",
+    "## OUTPUTS",
+    "- `aiopt-output/analysis.json`",
+    "- `aiopt-output/report.json`",
+    "- `aiopt-output/patches/*`",
+    ""
+  ].join("\n");
+  import_fs3.default.writeFileSync(import_path3.default.join(outDir, "report.md"), reportMd);
+  const reportTxt = [
+    `\uCD1D\uBE44\uC6A9: $${analysis.total_cost}`,
+    `\uC808\uAC10 \uAC00\uB2A5 \uAE08\uC561(Estimated): $${savings.estimated_savings_total}`,
+    `\uC808\uAC10 \uADFC\uAC70 3\uC904:`,
+    savings.notes[0],
+    savings.notes[1],
+    savings.notes[2],
+    ""
+  ].join("\n");
+  import_fs3.default.writeFileSync(import_path3.default.join(outDir, "report.txt"), reportTxt);
+  import_fs3.default.writeFileSync(import_path3.default.join(outDir, "cost-policy.json"), JSON.stringify(policy, null, 2));
+  const fixes = buildTopFixes(analysis, savings);
+  writePatches(outDir, fixes);
+}
+var import_fs3, import_path3, ROUTE_TO_CHEAP_FEATURES;
+var init_scan = __esm({
+  "src/scan.ts"() {
+    "use strict";
+    import_fs3 = __toESM(require("fs"));
+    import_path3 = __toESM(require("path"));
+    init_cost();
+    init_solutions();
+    ROUTE_TO_CHEAP_FEATURES = /* @__PURE__ */ new Set(["summarize", "classify", "translate"]);
+  }
+});
+
 // package.json
 var require_package = __commonJS({
   "package.json"(exports2, module2) {
     module2.exports = {
       name: "aiopt",
-      version: "0.2.1",
+      version: "0.2.3",
       description: "Serverless local CLI MVP for AI API cost analysis & cost-policy generation",
       bin: {
         aiopt: "dist/cli.js"
@@ -544,6 +843,83 @@ var init_doctor = __esm({
   }
 });
 
+// src/guard.ts
+var guard_exports = {};
+__export(guard_exports, {
+  runGuard: () => runGuard
+});
+function round23(n) {
+  return Math.round(n * 100) / 100;
+}
+function monthEstimate(delta) {
+  return delta * 30;
+}
+function applyCandidate(events, cand) {
+  const ctxM = cand.contextMultiplier ?? 1;
+  const outM = cand.outputMultiplier ?? 1;
+  const rDelta = cand.retriesDelta ?? 0;
+  return events.map((ev) => ({
+    ...ev,
+    provider: cand.provider ? String(cand.provider).toLowerCase() : ev.provider,
+    model: cand.model ? String(cand.model) : ev.model,
+    input_tokens: Math.max(0, Math.round((ev.input_tokens || 0) * ctxM)),
+    output_tokens: Math.max(0, Math.round((ev.output_tokens || 0) * outM)),
+    retries: Math.max(0, Math.round((ev.retries || 0) + rDelta)),
+    // clear billed_cost so pricing recalculates for new model/provider
+    billed_cost: void 0
+  }));
+}
+function confidenceFromChange(cand) {
+  const reasons = [];
+  if (cand.retriesDelta && cand.retriesDelta !== 0) reasons.push("retries change");
+  if (cand.model) reasons.push("model change");
+  if (cand.provider) reasons.push("provider change");
+  if (cand.contextMultiplier && cand.contextMultiplier !== 1) reasons.push("context length change");
+  if (cand.retriesDelta && cand.retriesDelta !== 0) return { level: "High", reasons };
+  if (cand.model || cand.provider) return { level: "Medium", reasons };
+  if (cand.contextMultiplier && cand.contextMultiplier !== 1) return { level: "Low", reasons };
+  return { level: "Medium", reasons: reasons.length ? reasons : ["unknown change"] };
+}
+function runGuard(rt, input) {
+  if (!input.baselineEvents || input.baselineEvents.length === 0) {
+    return { exitCode: 3, message: "FAIL: baseline usage is empty (need aiopt-output/usage.jsonl)" };
+  }
+  const baselineEvents = input.baselineEvents.map((e) => ({ ...e, billed_cost: void 0 }));
+  const base = analyze(rt, baselineEvents);
+  const candidateEvents = applyCandidate(baselineEvents, input.candidate);
+  const cand = analyze(rt, candidateEvents);
+  const baseCost = base.analysis.total_cost;
+  const candCost = cand.analysis.total_cost;
+  const delta = candCost - baseCost;
+  const conf = confidenceFromChange(input.candidate);
+  const monthly = monthEstimate(Math.max(0, delta));
+  const monthlyRounded = round23(monthly);
+  let exitCode = 0;
+  let headline = "OK: no cost accident risk detected";
+  if (monthly >= 100) {
+    exitCode = 3;
+    headline = "FAIL: high risk of LLM cost accident";
+  } else if (monthly >= 10) {
+    exitCode = 2;
+    headline = "WARN: possible LLM cost accident";
+  }
+  const reasons = conf.reasons.length ? conf.reasons.join(", ") : "n/a";
+  const msg = [
+    headline,
+    `Summary: baseline=$${baseCost} \u2192 candidate=$${candCost} (\u0394=$${round23(delta)})`,
+    `Impact (monthly est): +$${monthlyRounded}`,
+    `Confidence: ${conf.level} (${reasons})`,
+    "Recommendation: review model/provider/retry/context changes before deploy."
+  ].join("\n");
+  return { exitCode, message: msg };
+}
+var init_guard = __esm({
+  "src/guard.ts"() {
+    "use strict";
+    init_scan();
+  }
+});
+
 // src/cli.ts
 var import_fs6 = __toESM(require("fs"));
 var import_path6 = __toESM(require("path"));
@@ -601,296 +977,8 @@ function isCsvPath(p) {
   return import_path.default.extname(p).toLowerCase() === ".csv";
 }
 
-// src/scan.ts
-var import_fs3 = __toESM(require("fs"));
-var import_path3 = __toESM(require("path"));
-
-// src/cost.ts
-function getRates(rt, provider, model) {
-  const prov = String(provider || "").toLowerCase();
-  if (prov === "local" || prov === "ollama" || prov === "vllm") {
-    return { kind: "official", input: 0, output: 0 };
-  }
-  const p = rt.providers[prov];
-  if (!p) return null;
-  const m = p.models[model];
-  if (m) return { kind: "official", input: m.input, output: m.output };
-  return { kind: "estimated", input: p.default_estimated.input, output: p.default_estimated.output };
-}
-function costOfEvent(rt, ev) {
-  if (typeof ev.billed_cost === "number" && Number.isFinite(ev.billed_cost)) {
-    return {
-      cost: ev.billed_cost,
-      used_rate: {
-        kind: "billed_cost",
-        provider: ev.provider,
-        model: ev.model,
-        input_per_m: 0,
-        output_per_m: 0
-      }
-    };
-  }
-  const r = getRates(rt, ev.provider, ev.model);
-  if (!r) {
-    const input_per_m = 1;
-    const output_per_m = 4;
-    const cost2 = ev.input_tokens / 1e6 * input_per_m + ev.output_tokens / 1e6 * output_per_m;
-    return {
-      cost: cost2,
-      used_rate: { kind: "estimated", provider: String(ev.provider || "").toLowerCase(), model: ev.model, input_per_m, output_per_m }
-    };
-  }
-  const cost = ev.input_tokens / 1e6 * r.input + ev.output_tokens / 1e6 * r.output;
-  return {
-    cost,
-    used_rate: {
-      kind: r.kind,
-      provider: ev.provider,
-      model: ev.model,
-      input_per_m: r.input,
-      output_per_m: r.output
-    }
-  };
-}
-
-// src/scan.ts
-init_solutions();
-var ROUTE_TO_CHEAP_FEATURES = /* @__PURE__ */ new Set(["summarize", "classify", "translate"]);
-function topN(map, n) {
-  return [...map.entries()].map(([key, v]) => ({ key, cost: v.cost, events: v.events })).sort((a, b) => b.cost - a.cost).slice(0, n);
-}
-function analyze(rt, events) {
-  const byModel = /* @__PURE__ */ new Map();
-  const byFeature = /* @__PURE__ */ new Map();
-  const unknownModels = [];
-  const perEventCosts = [];
-  const isAttemptLog = events.some((e) => e.trace_id && String(e.trace_id).length > 0 || e.attempt !== void 0 && Number(e.attempt) > 0);
-  let baseTotal = 0;
-  let total = 0;
-  for (const ev of events) {
-    const cr = costOfEvent(rt, ev);
-    baseTotal += cr.cost;
-    if (isAttemptLog) {
-      total += cr.cost;
-    } else {
-      const retries = Math.max(0, Number(ev.retries || 0));
-      total += cr.cost * (1 + retries);
-    }
-    perEventCosts.push({ ev, cost: cr.cost });
-    const mk = `${ev.provider}:${ev.model}`;
-    const fk = ev.feature_tag || "(none)";
-    const mv = byModel.get(mk) || { cost: 0, events: 0 };
-    mv.cost += cr.cost;
-    mv.events += 1;
-    byModel.set(mk, mv);
-    const fv = byFeature.get(fk) || { cost: 0, events: 0 };
-    fv.cost += cr.cost;
-    fv.events += 1;
-    byFeature.set(fk, fv);
-    const rr = getRates(rt, ev.provider, ev.model);
-    if (!rr) {
-      unknownModels.push({ provider: ev.provider, model: ev.model, reason: "unknown provider (estimated)" });
-    } else if (rr.kind === "estimated") {
-      unknownModels.push({ provider: ev.provider, model: ev.model, reason: "unknown model (estimated)" });
-    }
-  }
-  const potByIdx = [];
-  for (const { ev, cost } of perEventCosts) {
-    const retries = Math.max(0, Number(ev.retries || 0));
-    const attempt = Number(ev.attempt || 1);
-    const total_i = isAttemptLog ? cost : cost * (1 + retries);
-    const waste_i = isAttemptLog ? attempt >= 2 ? cost : 0 : cost * retries;
-    let routing_i = 0;
-    if (ROUTE_TO_CHEAP_FEATURES.has(String(ev.feature_tag || "").toLowerCase())) {
-      const provider = ev.provider;
-      const p = rt.providers[provider];
-      if (p) {
-        const entries = Object.entries(p.models);
-        if (entries.length > 0) {
-          const cheapest = entries.map(([name, r]) => ({ name, score: (r.input + r.output) / 2, r })).sort((a, b) => a.score - b.score)[0];
-          const currentRate = getRates(rt, provider, ev.model);
-          if (currentRate && currentRate.kind !== "estimated") {
-            const currentCost = ev.input_tokens / 1e6 * currentRate.input + ev.output_tokens / 1e6 * currentRate.output;
-            const cheapCost = ev.input_tokens / 1e6 * cheapest.r.input + ev.output_tokens / 1e6 * cheapest.r.output;
-            const diff = (currentCost - cheapCost) * (1 + retries);
-            routing_i = Math.max(0, diff);
-          }
-        }
-      }
-    }
-    potByIdx.push({ routing: routing_i, context: 0, retry: waste_i, total: total_i, waste: waste_i });
-  }
-  const sortedIdx = [...events.map((e, i) => ({ i, input: Number(e.input_tokens || 0), ok: !isAttemptLog || Number(e.attempt || 1) === 1 }))].filter((x) => x.ok).sort((a, b) => b.input - a.input);
-  const k = Math.max(1, Math.floor(sortedIdx.length * 0.2));
-  const topIdx = new Set(sortedIdx.slice(0, k).map((x) => x.i));
-  for (let i = 0; i < events.length; i++) {
-    if (!topIdx.has(i)) continue;
-    const ev = events[i];
-    const retries = Math.max(0, Number(ev.retries || 0));
-    const r = getRates(rt, ev.provider, ev.model);
-    if (!r) continue;
-    const saveTokens = Number(ev.input_tokens || 0) * 0.25;
-    const multiplier = isAttemptLog ? 1 : 1 + retries;
-    const diff = saveTokens / 1e6 * r.input * multiplier;
-    potByIdx[i].context = Math.max(0, diff);
-  }
-  let routingSavings = 0;
-  let contextSavings = 0;
-  let retryWaste = 0;
-  for (const p of potByIdx) {
-    let remaining = p.total;
-    const rSave = Math.min(p.routing, remaining);
-    remaining -= rSave;
-    routingSavings += rSave;
-    const cSave = Math.min(p.context, remaining);
-    remaining -= cSave;
-    contextSavings += cSave;
-    const retrySave = Math.min(p.retry, remaining);
-    retryWaste += retrySave;
-  }
-  const estimatedSavingsTotal = routingSavings + contextSavings + retryWaste;
-  const guardedSavingsTotal = Math.min(estimatedSavingsTotal, total);
-  const analysis = {
-    total_cost: round22(total),
-    by_model_top: topN(byModel, 10).map((x) => ({ ...x, cost: round22(x.cost) })),
-    by_feature_top: topN(byFeature, 10).map((x) => ({ ...x, cost: round22(x.cost) })),
-    unknown_models: uniqUnknown(unknownModels),
-    rate_table_version: rt.version,
-    rate_table_date: rt.date
-  };
-  const savings = {
-    estimated_savings_total: round22(guardedSavingsTotal),
-    routing_savings: round22(routingSavings),
-    context_savings: round22(contextSavings),
-    retry_waste: round22(retryWaste),
-    notes: [
-      `a) \uBAA8\uB378 \uB77C\uC6B0\uD305 \uC808\uAC10(\uCD94\uC815): $${round22(routingSavings)}`,
-      `b) \uCEE8\uD14D\uC2A4\uD2B8 \uAC10\uCD95(\uCD94\uC815): $${round22(contextSavings)} (\uC0C1\uC704 20% input\uC5D0 25% \uAC10\uCD95 \uAC00\uC815)`,
-      `c) \uC7AC\uC2DC\uB3C4/\uC624\uB958 \uB0AD\uBE44(\uC0C1\uD55C \uC801\uC6A9): $${round22(retryWaste)} (retries \uAE30\uBC18)`
-    ]
-  };
-  const policy = buildPolicy(rt, events);
-  return { analysis, savings, policy, meta: { mode: isAttemptLog ? "attempt-log" : "legacy" } };
-}
-function buildPolicy(rt, events) {
-  const freq = /* @__PURE__ */ new Map();
-  for (const ev of events) freq.set(ev.provider, (freq.get(ev.provider) || 0) + 1);
-  const defaultProvider = [...freq.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || "openai";
-  const rules = [];
-  for (const provider of Object.keys(rt.providers)) {
-    const p = rt.providers[provider];
-    const entries = Object.entries(p.models);
-    if (entries.length === 0) continue;
-    const cheapest = entries.map(([name, r]) => ({ name, score: (r.input + r.output) / 2, r })).sort((a, b) => a.score - b.score)[0];
-    rules.push({
-      match: { provider, feature_tag_in: ["summarize", "classify", "translate"] },
-      action: { recommend_model: cheapest.name, reason: "cheap-feature routing" }
-    });
-  }
-  rules.push({ match: { model_unknown: true }, action: { keep: true, reason: "unknown model -> no policy applied" } });
-  return {
-    version: 1,
-    default_provider: defaultProvider,
-    rules,
-    budgets: { currency: rt.currency, notes: "MVP: budgets not enforced" },
-    generated_from: { rate_table_version: rt.version, input: "./aiopt-input/usage.jsonl" }
-  };
-}
-function uniqUnknown(list) {
-  const seen = /* @__PURE__ */ new Set();
-  const out = [];
-  for (const x of list) {
-    const k = `${x.provider}:${x.model}:${x.reason}`;
-    if (seen.has(k)) continue;
-    seen.add(k);
-    out.push(x);
-  }
-  return out;
-}
-function round22(n) {
-  return Math.round(n * 100) / 100;
-}
-function writeOutputs(outDir, analysis, savings, policy, meta) {
-  const mode = meta?.mode || "legacy";
-  import_fs3.default.mkdirSync(outDir, { recursive: true });
-  import_fs3.default.writeFileSync(import_path3.default.join(outDir, "analysis.json"), JSON.stringify(analysis, null, 2));
-  const unknownCount = analysis.unknown_models?.length || 0;
-  const confidence = unknownCount === 0 ? "HIGH" : unknownCount <= 3 ? "MED" : "LOW";
-  const ratio = analysis.total_cost > 0 ? savings.estimated_savings_total / analysis.total_cost : 0;
-  const warnings = [];
-  if (ratio >= 0.9) warnings.push("estimated savings >= 90%");
-  if (unknownCount > 0) warnings.push("unknown models/providers detected (estimated pricing used)");
-  const reportJson = {
-    version: 3,
-    generated_at: (/* @__PURE__ */ new Date()).toISOString(),
-    confidence,
-    warnings,
-    assumptions: {
-      no_double_counting: "routing -> context -> retry allocation per-event with remaining-cost caps",
-      retry_cost_model: mode === "attempt-log" ? "attempt-log mode: total_cost is sum of attempt lines; retry_waste is sum of attempts>=2" : "legacy mode: total_cost includes retries as extra attempts (base_cost*(1+retries))",
-      context_model: "top 20% by input_tokens assume 25% input reduction",
-      estimated_pricing_note: unknownCount > 0 ? "some items use estimated rates; treat savings as a band" : "all items used known rates"
-    },
-    summary: {
-      total_cost_usd: analysis.total_cost,
-      estimated_savings_usd: savings.estimated_savings_total,
-      routing_savings_usd: savings.routing_savings,
-      context_savings_usd: savings.context_savings,
-      retry_waste_usd: savings.retry_waste
-    },
-    top: {
-      by_model: analysis.by_model_top,
-      by_feature: analysis.by_feature_top
-    },
-    unknown_models: analysis.unknown_models,
-    notes: savings.notes
-  };
-  import_fs3.default.writeFileSync(import_path3.default.join(outDir, "report.json"), JSON.stringify(reportJson, null, 2));
-  const ratioMd = analysis.total_cost > 0 ? savings.estimated_savings_total / analysis.total_cost : 0;
-  const warningsMd = [];
-  if (ratioMd >= 0.9) warningsMd.push("WARNING: estimated savings >= 90% \u2014 check overlap/missing rate table");
-  const reportMd = [
-    "# AIOpt Report",
-    "",
-    `- Total cost: $${analysis.total_cost}`,
-    `- Estimated savings: $${savings.estimated_savings_total} (guarded <= total_cost)`,
-    `- Confidence: ${confidence}`,
-    unknownCount > 0 ? `- Unknown models: ${unknownCount} (estimated pricing used)` : "- Unknown models: 0",
-    ...warningsMd.map((w) => `- ${w}`),
-    "",
-    "## ASSUMPTIONS",
-    "- No double-counting: routing \u2192 context \u2192 retry savings allocated per-event with remaining-cost caps.",
-    mode === "attempt-log" ? "- Retry cost model: attempt-log mode (total_cost=sum attempts, retry_waste=sum attempt>=2)." : "- Retry cost model: legacy mode (total_cost=base_cost*(1+retries)).",
-    "- Context savings: top 20% input_tokens events assume 25% input reduction.",
-    "",
-    "## WHAT TO CHANGE",
-    "1) Retry tuning \u2192 edit `aiopt/policies/retry.json`",
-    "2) Output cap \u2192 edit `aiopt/policies/output.json`",
-    "3) Routing rule \u2192 edit `aiopt/policies/routing.json`",
-    "",
-    "## OUTPUTS",
-    "- `aiopt-output/analysis.json`",
-    "- `aiopt-output/report.json`",
-    "- `aiopt-output/patches/*`",
-    ""
-  ].join("\n");
-  import_fs3.default.writeFileSync(import_path3.default.join(outDir, "report.md"), reportMd);
-  const reportTxt = [
-    `\uCD1D\uBE44\uC6A9: $${analysis.total_cost}`,
-    `\uC808\uAC10 \uAC00\uB2A5 \uAE08\uC561(Estimated): $${savings.estimated_savings_total}`,
-    `\uC808\uAC10 \uADFC\uAC70 3\uC904:`,
-    savings.notes[0],
-    savings.notes[1],
-    savings.notes[2],
-    ""
-  ].join("\n");
-  import_fs3.default.writeFileSync(import_path3.default.join(outDir, "report.txt"), reportTxt);
-  import_fs3.default.writeFileSync(import_path3.default.join(outDir, "cost-policy.json"), JSON.stringify(policy, null, 2));
-  const fixes = buildTopFixes(analysis, savings);
-  writePatches(outDir, fixes);
-}
-
 // src/cli.ts
+init_scan();
 var program = new import_commander.Command();
 var DEFAULT_INPUT = "./aiopt-output/usage.jsonl";
 var DEFAULT_OUTPUT_DIR = "./aiopt-output";
@@ -962,6 +1050,28 @@ program.command("doctor").description("Check installation + print last 5 usage e
   for (const x of r.last5) {
     console.log(JSON.stringify(x));
   }
+});
+program.command("guard").description("Pre-deploy guardrail: compare baseline usage vs candidate change and print warnings (exit codes 0/2/3)").option("--input <path>", "baseline usage jsonl/csv (default: ./aiopt-output/usage.jsonl)", DEFAULT_INPUT).option("--provider <provider>", "candidate provider override").option("--model <model>", "candidate model override").option("--context-mult <n>", "multiply input_tokens by n", (v) => Number(v)).option("--output-mult <n>", "multiply output_tokens by n", (v) => Number(v)).option("--retries-delta <n>", "add n to retries", (v) => Number(v)).action(async (opts) => {
+  const rt = loadRateTable();
+  const inputPath = String(opts.input);
+  if (!import_fs6.default.existsSync(inputPath)) {
+    console.error(`FAIL: baseline not found: ${inputPath}`);
+    process.exit(3);
+  }
+  const events = isCsvPath(inputPath) ? readCsv(inputPath) : readJsonl(inputPath);
+  const { runGuard: runGuard2 } = await Promise.resolve().then(() => (init_guard(), guard_exports));
+  const r = runGuard2(rt, {
+    baselineEvents: events,
+    candidate: {
+      provider: opts.provider,
+      model: opts.model,
+      contextMultiplier: opts.contextMult,
+      outputMultiplier: opts.outputMult,
+      retriesDelta: opts.retriesDelta
+    }
+  });
+  console.log(r.message);
+  process.exit(r.exitCode);
 });
 program.parse(process.argv);
 //# sourceMappingURL=cli.js.map

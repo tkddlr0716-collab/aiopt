@@ -127,4 +127,39 @@ program
     }
   });
 
+// vNext: guardrail mode (pre-deploy warning)
+program
+  .command('guard')
+  .description('Pre-deploy guardrail: compare baseline usage vs candidate change and print warnings (exit codes 0/2/3)')
+  .option('--input <path>', 'baseline usage jsonl/csv (default: ./aiopt-output/usage.jsonl)', DEFAULT_INPUT)
+  .option('--provider <provider>', 'candidate provider override')
+  .option('--model <model>', 'candidate model override')
+  .option('--context-mult <n>', 'multiply input_tokens by n', (v) => Number(v))
+  .option('--output-mult <n>', 'multiply output_tokens by n', (v) => Number(v))
+  .option('--retries-delta <n>', 'add n to retries', (v) => Number(v))
+  .action(async (opts) => {
+    const rt = loadRateTable();
+    const inputPath = String(opts.input);
+    if (!fs.existsSync(inputPath)) {
+      console.error(`FAIL: baseline not found: ${inputPath}`);
+      process.exit(3);
+    }
+    const events = isCsvPath(inputPath) ? readCsv(inputPath) : readJsonl(inputPath);
+
+    const { runGuard } = await import('./guard');
+    const r = runGuard(rt, {
+      baselineEvents: events,
+      candidate: {
+        provider: opts.provider,
+        model: opts.model,
+        contextMultiplier: opts.contextMult,
+        outputMultiplier: opts.outputMult,
+        retriesDelta: opts.retriesDelta
+      }
+    });
+
+    console.log(r.message);
+    process.exit(r.exitCode);
+  });
+
 program.parse(process.argv);
