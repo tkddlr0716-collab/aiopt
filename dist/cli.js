@@ -36,19 +36,19 @@ __export(install_exports, {
   runInstall: () => runInstall
 });
 function ensureDir2(p) {
-  import_fs3.default.mkdirSync(p, { recursive: true });
+  import_fs4.default.mkdirSync(p, { recursive: true });
 }
 function writeFile(filePath, content, force) {
-  if (!force && import_fs3.default.existsSync(filePath)) return { wrote: false, reason: "exists" };
-  ensureDir2(import_path3.default.dirname(filePath));
-  import_fs3.default.writeFileSync(filePath, content);
+  if (!force && import_fs4.default.existsSync(filePath)) return { wrote: false, reason: "exists" };
+  ensureDir2(import_path4.default.dirname(filePath));
+  import_fs4.default.writeFileSync(filePath, content);
   return { wrote: true };
 }
 function runInstall(cwd, opts) {
   const force = Boolean(opts.force);
-  const aioptDir = import_path3.default.join(cwd, "aiopt");
-  const policiesDir = import_path3.default.join(aioptDir, "policies");
-  const outDir = import_path3.default.join(cwd, "aiopt-output");
+  const aioptDir = import_path4.default.join(cwd, "aiopt");
+  const policiesDir = import_path4.default.join(aioptDir, "policies");
+  const outDir = import_path4.default.join(cwd, "aiopt-output");
   ensureDir2(aioptDir);
   ensureDir2(policiesDir);
   ensureDir2(outDir);
@@ -104,7 +104,7 @@ return {
 };
 \`\`\`
 `;
-  const r1 = writeFile(import_path3.default.join(aioptDir, "README.md"), readme, force);
+  const r1 = writeFile(import_path4.default.join(aioptDir, "README.md"), readme, force);
   created.push({ path: "aiopt/README.md", status: r1.wrote ? "created" : "skipped" });
   const config = {
     version: 1,
@@ -114,7 +114,7 @@ return {
     policies_dir: "./aiopt/policies",
     rate_table: { path: "./rates/rate_table.json" }
   };
-  const r2 = writeFile(import_path3.default.join(aioptDir, "aiopt.config.json"), JSON.stringify(config, null, 2) + "\n", force);
+  const r2 = writeFile(import_path4.default.join(aioptDir, "aiopt.config.json"), JSON.stringify(config, null, 2) + "\n", force);
   created.push({ path: "aiopt/aiopt.config.json", status: r2.wrote ? "created" : "skipped" });
   const routing = {
     version: 1,
@@ -145,15 +145,15 @@ return {
     reduce_top_percentile: 0.2,
     assumed_reduction_ratio: 0.25
   };
-  const p1 = writeFile(import_path3.default.join(policiesDir, "routing.json"), JSON.stringify(routing, null, 2) + "\n", force);
-  const p2 = writeFile(import_path3.default.join(policiesDir, "retry.json"), JSON.stringify(retry, null, 2) + "\n", force);
-  const p3 = writeFile(import_path3.default.join(policiesDir, "output.json"), JSON.stringify(output, null, 2) + "\n", force);
-  const p4 = writeFile(import_path3.default.join(policiesDir, "context.json"), JSON.stringify(context, null, 2) + "\n", force);
+  const p1 = writeFile(import_path4.default.join(policiesDir, "routing.json"), JSON.stringify(routing, null, 2) + "\n", force);
+  const p2 = writeFile(import_path4.default.join(policiesDir, "retry.json"), JSON.stringify(retry, null, 2) + "\n", force);
+  const p3 = writeFile(import_path4.default.join(policiesDir, "output.json"), JSON.stringify(output, null, 2) + "\n", force);
+  const p4 = writeFile(import_path4.default.join(policiesDir, "context.json"), JSON.stringify(context, null, 2) + "\n", force);
   created.push({ path: "aiopt/policies/routing.json", status: p1.wrote ? "created" : "skipped" });
   created.push({ path: "aiopt/policies/retry.json", status: p2.wrote ? "created" : "skipped" });
   created.push({ path: "aiopt/policies/output.json", status: p3.wrote ? "created" : "skipped" });
   created.push({ path: "aiopt/policies/context.json", status: p4.wrote ? "created" : "skipped" });
-  const wrapperPath = import_path3.default.join(aioptDir, "aiopt-wrapper.js");
+  const wrapperPath = import_path4.default.join(aioptDir, "aiopt-wrapper.js");
   const wrapper = `// AIOpt Wrapper (guardrails) \u2014 local-only (CommonJS)
 
 const fs = require('fs');
@@ -305,8 +305,8 @@ module.exports = { guardedCall };
   ;
   const w = writeFile(wrapperPath, wrapper, force);
   created.push({ path: "aiopt/aiopt-wrapper.js", status: w.wrote ? "created" : "skipped" });
-  const usagePath = import_path3.default.join(outDir, "usage.jsonl");
-  if (force || !import_fs3.default.existsSync(usagePath)) {
+  const usagePath = import_path4.default.join(outDir, "usage.jsonl");
+  if (force || !import_fs4.default.existsSync(usagePath)) {
     const header = {
       ts: (/* @__PURE__ */ new Date()).toISOString(),
       request_id: "sample",
@@ -324,19 +324,19 @@ module.exports = { guardedCall };
       latency_ms: 1,
       meta: { routed_from: null, policy_hits: ["install-sample"] }
     };
-    import_fs3.default.writeFileSync(usagePath, JSON.stringify(header) + "\n");
+    import_fs4.default.writeFileSync(usagePath, JSON.stringify(header) + "\n");
     created.push({ path: "aiopt-output/usage.jsonl", status: "created" });
   } else {
     created.push({ path: "aiopt-output/usage.jsonl", status: "skipped" });
   }
   return { created };
 }
-var import_fs3, import_path3;
+var import_fs4, import_path4;
 var init_install = __esm({
   "src/install.ts"() {
     "use strict";
-    import_fs3 = __toESM(require("fs"));
-    import_path3 = __toESM(require("path"));
+    import_fs4 = __toESM(require("fs"));
+    import_path4 = __toESM(require("path"));
   }
 });
 
@@ -347,10 +347,10 @@ __export(doctor_exports, {
 });
 function canWrite(dir) {
   try {
-    import_fs4.default.mkdirSync(dir, { recursive: true });
-    const p = import_path4.default.join(dir, `.aiopt-write-test-${Date.now()}`);
-    import_fs4.default.writeFileSync(p, "ok");
-    import_fs4.default.unlinkSync(p);
+    import_fs5.default.mkdirSync(dir, { recursive: true });
+    const p = import_path5.default.join(dir, `.aiopt-write-test-${Date.now()}`);
+    import_fs5.default.writeFileSync(p, "ok");
+    import_fs5.default.unlinkSync(p);
     return true;
   } catch {
     return false;
@@ -358,7 +358,7 @@ function canWrite(dir) {
 }
 function tailLines(filePath, n) {
   try {
-    const raw = import_fs4.default.readFileSync(filePath, "utf8");
+    const raw = import_fs5.default.readFileSync(filePath, "utf8");
     const lines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
     return lines.slice(Math.max(0, lines.length - n));
   } catch {
@@ -366,15 +366,15 @@ function tailLines(filePath, n) {
   }
 }
 function runDoctor(cwd) {
-  const aioptDir = import_path4.default.join(cwd, "aiopt");
-  const policiesDir = import_path4.default.join(aioptDir, "policies");
-  const outDir = import_path4.default.join(cwd, "aiopt-output");
-  const usagePath = import_path4.default.join(outDir, "usage.jsonl");
+  const aioptDir = import_path5.default.join(cwd, "aiopt");
+  const policiesDir = import_path5.default.join(aioptDir, "policies");
+  const outDir = import_path5.default.join(cwd, "aiopt-output");
+  const usagePath = import_path5.default.join(outDir, "usage.jsonl");
   const checks = [];
-  checks.push({ name: "aiopt/ exists", ok: import_fs4.default.existsSync(aioptDir) });
-  checks.push({ name: "aiopt/policies exists", ok: import_fs4.default.existsSync(policiesDir) });
+  checks.push({ name: "aiopt/ exists", ok: import_fs5.default.existsSync(aioptDir) });
+  checks.push({ name: "aiopt/policies exists", ok: import_fs5.default.existsSync(policiesDir) });
   checks.push({ name: "aiopt-output/ writable", ok: canWrite(outDir) });
-  checks.push({ name: "usage.jsonl exists", ok: import_fs4.default.existsSync(usagePath), detail: usagePath });
+  checks.push({ name: "usage.jsonl exists", ok: import_fs5.default.existsSync(usagePath), detail: usagePath });
   const last5raw = tailLines(usagePath, 5);
   const last5 = last5raw.map((l) => {
     try {
@@ -393,18 +393,18 @@ function runDoctor(cwd) {
   const ok = checks.every((c) => c.ok);
   return { ok, checks, last5 };
 }
-var import_fs4, import_path4;
+var import_fs5, import_path5;
 var init_doctor = __esm({
   "src/doctor.ts"() {
     "use strict";
-    import_fs4 = __toESM(require("fs"));
-    import_path4 = __toESM(require("path"));
+    import_fs5 = __toESM(require("fs"));
+    import_path5 = __toESM(require("path"));
   }
 });
 
 // src/cli.ts
-var import_fs5 = __toESM(require("fs"));
-var import_path5 = __toESM(require("path"));
+var import_fs6 = __toESM(require("fs"));
+var import_path6 = __toESM(require("path"));
 var import_commander = require("commander");
 
 // src/io.ts
@@ -451,8 +451,8 @@ function isCsvPath(p) {
 }
 
 // src/scan.ts
-var import_fs2 = __toESM(require("fs"));
-var import_path2 = __toESM(require("path"));
+var import_fs3 = __toESM(require("fs"));
+var import_path3 = __toESM(require("path"));
 
 // src/cost.ts
 function getRates(rt, provider, model) {
@@ -496,6 +496,62 @@ function costOfEvent(rt, ev) {
       output_per_m: r.output
     }
   };
+}
+
+// src/solutions.ts
+var import_fs2 = __toESM(require("fs"));
+var import_path2 = __toESM(require("path"));
+function buildTopFixes(analysis, savings) {
+  const fixes = [];
+  fixes.push({
+    id: "fix-retry-tuning",
+    title: "Retry tuning",
+    why: `Retry waste is estimated at $${savings.retry_waste}.`,
+    what_to_change: [
+      "aiopt/policies/retry.json: lower max_attempts or adjust backoff_ms",
+      "Ensure idempotency keys are stable per trace_id",
+      "Log error_code to identify retryable classes"
+    ]
+  });
+  fixes.push({
+    id: "fix-output-cap",
+    title: "Output cap",
+    why: `Context savings estimate suggests prompts are heavy; output caps prevent runaway completions.`,
+    what_to_change: [
+      "aiopt/policies/output.json: set max_output_tokens_default",
+      "aiopt/policies/output.json: set per_feature caps (summarize/classify/translate)"
+    ]
+  });
+  const topFeature = analysis.by_feature_top?.[0]?.key;
+  fixes.push({
+    id: "fix-routing",
+    title: "Routing rule",
+    why: `Routing savings estimate: $${savings.routing_savings}. (cheap features -> cheaper model)`,
+    what_to_change: [
+      "aiopt/policies/routing.json: route summarize/classify/translate to cheap tier",
+      `Consider adding feature_tag_in for top feature: ${topFeature || "(unknown)"}`
+    ]
+  });
+  return fixes;
+}
+function writePatches(outDir, fixes) {
+  const patchesDir = import_path2.default.join(outDir, "patches");
+  import_fs2.default.mkdirSync(patchesDir, { recursive: true });
+  const readme = [
+    "# AIOpt patches (MVP)",
+    "",
+    "This folder contains suggested changes you can apply locally.",
+    "",
+    "## Top fixes",
+    ...fixes.map((f, i) => `${i + 1}. ${f.title} \u2014 ${f.why}`),
+    "",
+    "Files are stubs (human review required).",
+    ""
+  ].join("\n");
+  import_fs2.default.writeFileSync(import_path2.default.join(patchesDir, "README.md"), readme);
+  import_fs2.default.writeFileSync(import_path2.default.join(patchesDir, "policies.updated.routing.json"), JSON.stringify({ note: "apply changes to aiopt/policies/routing.json", fixes: fixes.filter((f) => f.id.includes("routing")) }, null, 2));
+  import_fs2.default.writeFileSync(import_path2.default.join(patchesDir, "policies.updated.retry.json"), JSON.stringify({ note: "apply changes to aiopt/policies/retry.json", fixes: fixes.filter((f) => f.id.includes("retry")) }, null, 2));
+  import_fs2.default.writeFileSync(import_path2.default.join(patchesDir, "policies.updated.output.json"), JSON.stringify({ note: "apply changes to aiopt/policies/output.json", fixes: fixes.filter((f) => f.id.includes("output")) }, null, 2));
 }
 
 // src/scan.ts
@@ -627,10 +683,10 @@ function round2(n) {
   return Math.round(n * 100) / 100;
 }
 function writeOutputs(outDir, analysis, savings, policy) {
-  import_fs2.default.mkdirSync(outDir, { recursive: true });
-  import_fs2.default.writeFileSync(import_path2.default.join(outDir, "analysis.json"), JSON.stringify(analysis, null, 2));
+  import_fs3.default.mkdirSync(outDir, { recursive: true });
+  import_fs3.default.writeFileSync(import_path3.default.join(outDir, "analysis.json"), JSON.stringify(analysis, null, 2));
   const reportJson = {
-    version: 1,
+    version: 2,
     generated_at: (/* @__PURE__ */ new Date()).toISOString(),
     summary: {
       total_cost_usd: analysis.total_cost,
@@ -646,7 +702,25 @@ function writeOutputs(outDir, analysis, savings, policy) {
     unknown_models: analysis.unknown_models,
     notes: savings.notes
   };
-  import_fs2.default.writeFileSync(import_path2.default.join(outDir, "report.json"), JSON.stringify(reportJson, null, 2));
+  import_fs3.default.writeFileSync(import_path3.default.join(outDir, "report.json"), JSON.stringify(reportJson, null, 2));
+  const reportMd = [
+    "# AIOpt Report",
+    "",
+    `- Total cost: $${analysis.total_cost}`,
+    `- Estimated savings: $${savings.estimated_savings_total}`,
+    "",
+    "## WHAT TO CHANGE",
+    "1) Retry tuning \u2192 edit `aiopt/policies/retry.json`",
+    "2) Output cap \u2192 edit `aiopt/policies/output.json`",
+    "3) Routing rule \u2192 edit `aiopt/policies/routing.json`",
+    "",
+    "## OUTPUTS",
+    "- `aiopt-output/analysis.json`",
+    "- `aiopt-output/report.json`",
+    "- `aiopt-output/patches/*`",
+    ""
+  ].join("\n");
+  import_fs3.default.writeFileSync(import_path3.default.join(outDir, "report.md"), reportMd);
   const reportTxt = [
     `\uCD1D\uBE44\uC6A9: $${analysis.total_cost}`,
     `\uC808\uAC10 \uAC00\uB2A5 \uAE08\uC561(Estimated): $${savings.estimated_savings_total}`,
@@ -656,36 +730,38 @@ function writeOutputs(outDir, analysis, savings, policy) {
     savings.notes[2],
     ""
   ].join("\n");
-  import_fs2.default.writeFileSync(import_path2.default.join(outDir, "report.txt"), reportTxt);
-  import_fs2.default.writeFileSync(import_path2.default.join(outDir, "cost-policy.json"), JSON.stringify(policy, null, 2));
+  import_fs3.default.writeFileSync(import_path3.default.join(outDir, "report.txt"), reportTxt);
+  import_fs3.default.writeFileSync(import_path3.default.join(outDir, "cost-policy.json"), JSON.stringify(policy, null, 2));
+  const fixes = buildTopFixes(analysis, savings);
+  writePatches(outDir, fixes);
 }
 
 // src/cli.ts
 var program = new import_commander.Command();
-var DEFAULT_INPUT = "./aiopt-input/usage.jsonl";
+var DEFAULT_INPUT = "./aiopt-output/usage.jsonl";
 var DEFAULT_OUTPUT_DIR = "./aiopt-output";
 function loadRateTable() {
-  const p = import_path5.default.join(__dirname, "..", "rates", "rate_table.json");
-  return JSON.parse(import_fs5.default.readFileSync(p, "utf8"));
+  const p = import_path6.default.join(__dirname, "..", "rates", "rate_table.json");
+  return JSON.parse(import_fs6.default.readFileSync(p, "utf8"));
 }
 program.name("aiopt").description("AI \uBE44\uC6A9 \uC790\uB3D9 \uC808\uAC10 \uC778\uD504\uB77C \u2014 \uC11C\uBC84 \uC5C6\uB294 \uB85C\uCEEC CLI MVP").version("0.0.1");
 program.command("init").description("aiopt-input/ \uBC0F \uC0D8\uD50C usage.jsonl, aiopt-output/ \uC0DD\uC131").action(() => {
   ensureDir("./aiopt-input");
   ensureDir("./aiopt-output");
-  const sampleSrc = import_path5.default.join(__dirname, "..", "samples", "sample_usage.jsonl");
-  const dst = import_path5.default.join("./aiopt-input", "usage.jsonl");
-  if (!import_fs5.default.existsSync(dst)) {
-    import_fs5.default.copyFileSync(sampleSrc, dst);
+  const sampleSrc = import_path6.default.join(__dirname, "..", "samples", "sample_usage.jsonl");
+  const dst = import_path6.default.join("./aiopt-input", "usage.jsonl");
+  if (!import_fs6.default.existsSync(dst)) {
+    import_fs6.default.copyFileSync(sampleSrc, dst);
     console.log("Created ./aiopt-input/usage.jsonl (sample)");
   } else {
     console.log("Exists ./aiopt-input/usage.jsonl (skip)");
   }
   console.log("Ready: ./aiopt-output/");
 });
-program.command("scan").description("\uC785\uB825 \uB85C\uADF8(JSONL/CSV)\uB97C \uBD84\uC11D\uD558\uACE0 3\uAC1C \uC0B0\uCD9C\uBB3C \uC0DD\uC131").option("--input <path>", "input file path (default: ./aiopt-input/usage.jsonl)", DEFAULT_INPUT).option("--out <dir>", "output dir (default: ./aiopt-output)", DEFAULT_OUTPUT_DIR).action((opts) => {
+program.command("scan").description("\uC785\uB825 \uB85C\uADF8(JSONL/CSV)\uB97C \uBD84\uC11D\uD558\uACE0 report.md/report.json + patches\uAE4C\uC9C0 \uC0DD\uC131").option("--input <path>", "input file path (default: ./aiopt-output/usage.jsonl)", DEFAULT_INPUT).option("--out <dir>", "output dir (default: ./aiopt-output)", DEFAULT_OUTPUT_DIR).action((opts) => {
   const inputPath = String(opts.input);
   const outDir = String(opts.out);
-  if (!import_fs5.default.existsSync(inputPath)) {
+  if (!import_fs6.default.existsSync(inputPath)) {
     console.error(`Input not found: ${inputPath}`);
     process.exit(1);
   }
@@ -694,9 +770,11 @@ program.command("scan").description("\uC785\uB825 \uB85C\uADF8(JSONL/CSV)\uB97C 
   const { analysis, savings, policy } = analyze(rt, events);
   policy.generated_from.input = inputPath;
   writeOutputs(outDir, analysis, savings, policy);
-  console.log(`OK: ${outDir}/analysis.json`);
-  console.log(`OK: ${outDir}/report.txt`);
-  console.log(`OK: ${outDir}/cost-policy.json`);
+  console.log("Top Fix 3:");
+  console.log("1) Retry tuning (aiopt/policies/retry.json)");
+  console.log("2) Output cap (aiopt/policies/output.json)");
+  console.log("3) Routing rule (aiopt/policies/routing.json)");
+  console.log(`Report: ${import_path6.default.join(outDir, "report.md")}`);
 });
 program.command("policy").description("\uB9C8\uC9C0\uB9C9 scan \uACB0\uACFC \uAE30\uBC18\uC73C\uB85C cost-policy.json\uB9CC \uC7AC\uC0DD\uC131 (MVP: scan\uACFC \uB3D9\uC77C \uB85C\uC9C1)").option("--input <path>", "input file path (default: ./aiopt-input/usage.jsonl)", DEFAULT_INPUT).option("--out <dir>", "output dir (default: ./aiopt-output)", DEFAULT_OUTPUT_DIR).action((opts) => {
   const inputPath = String(opts.input);
@@ -706,7 +784,7 @@ program.command("policy").description("\uB9C8\uC9C0\uB9C9 scan \uACB0\uACFC \uAE
   const { policy } = analyze(rt, events);
   policy.generated_from.input = inputPath;
   ensureDir(outDir);
-  import_fs5.default.writeFileSync(import_path5.default.join(outDir, "cost-policy.json"), JSON.stringify(policy, null, 2));
+  import_fs6.default.writeFileSync(import_path6.default.join(outDir, "cost-policy.json"), JSON.stringify(policy, null, 2));
   console.log(`OK: ${outDir}/cost-policy.json`);
 });
 program.command("install").description("Install AIOpt guardrails: create aiopt/ + policies + usage.jsonl").option("--force", "overwrite existing files").action(async (opts) => {

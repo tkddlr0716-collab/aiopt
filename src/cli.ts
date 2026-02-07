@@ -9,7 +9,7 @@ import { analyze, writeOutputs } from './scan';
 
 const program = new Command();
 
-const DEFAULT_INPUT = './aiopt-input/usage.jsonl';
+const DEFAULT_INPUT = './aiopt-output/usage.jsonl';
 const DEFAULT_OUTPUT_DIR = './aiopt-output';
 
 function loadRateTable(): RateTable {
@@ -44,8 +44,8 @@ program
 
 program
   .command('scan')
-  .description('입력 로그(JSONL/CSV)를 분석하고 3개 산출물 생성')
-  .option('--input <path>', 'input file path (default: ./aiopt-input/usage.jsonl)', DEFAULT_INPUT)
+  .description('입력 로그(JSONL/CSV)를 분석하고 report.md/report.json + patches까지 생성')
+  .option('--input <path>', 'input file path (default: ./aiopt-output/usage.jsonl)', DEFAULT_INPUT)
   .option('--out <dir>', 'output dir (default: ./aiopt-output)', DEFAULT_OUTPUT_DIR)
   .action((opts) => {
     const inputPath = String(opts.input);
@@ -65,9 +65,12 @@ program
 
     writeOutputs(outDir, analysis, savings, policy);
 
-    console.log(`OK: ${outDir}/analysis.json`);
-    console.log(`OK: ${outDir}/report.txt`);
-    console.log(`OK: ${outDir}/cost-policy.json`);
+    // Console: Top Fix 3 (T3 DoD)
+    console.log('Top Fix 3:');
+    console.log('1) Retry tuning (aiopt/policies/retry.json)');
+    console.log('2) Output cap (aiopt/policies/output.json)');
+    console.log('3) Routing rule (aiopt/policies/routing.json)');
+    console.log(`Report: ${path.join(outDir, 'report.md')}`);
   });
 
 program

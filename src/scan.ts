@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { RateTable, UsageEvent } from './types';
 import { costOfEvent, getRates } from './cost';
+import { buildTopFixes, writePatches } from './solutions';
 
 export type AnalysisJson = {
   total_cost: number;
@@ -205,7 +206,7 @@ export function writeOutputs(outDir: string, analysis: AnalysisJson, savings: Sa
 
   // report.json is the “one file to parse” summary for downstream tooling.
   const reportJson = {
-    version: 1,
+    version: 2,
     generated_at: new Date().toISOString(),
     summary: {
       total_cost_usd: analysis.total_cost,
@@ -223,6 +224,26 @@ export function writeOutputs(outDir: string, analysis: AnalysisJson, savings: Sa
   };
   fs.writeFileSync(path.join(outDir, 'report.json'), JSON.stringify(reportJson, null, 2));
 
+  // report.md: "what to change" guidance (T3 DoD)
+  const reportMd = [
+    '# AIOpt Report',
+    '',
+    `- Total cost: $${analysis.total_cost}`,
+    `- Estimated savings: $${savings.estimated_savings_total}`,
+    '',
+    '## WHAT TO CHANGE',
+    '1) Retry tuning → edit `aiopt/policies/retry.json`',
+    '2) Output cap → edit `aiopt/policies/output.json`',
+    '3) Routing rule → edit `aiopt/policies/routing.json`',
+    '',
+    '## OUTPUTS',
+    '- `aiopt-output/analysis.json`',
+    '- `aiopt-output/report.json`',
+    '- `aiopt-output/patches/*`',
+    ''
+  ].join('\n');
+  fs.writeFileSync(path.join(outDir, 'report.md'), reportMd);
+
   const reportTxt = [
     `총비용: $${analysis.total_cost}`,
     `절감 가능 금액(Estimated): $${savings.estimated_savings_total}`,
@@ -235,4 +256,8 @@ export function writeOutputs(outDir: string, analysis: AnalysisJson, savings: Sa
   fs.writeFileSync(path.join(outDir, 'report.txt'), reportTxt);
 
   fs.writeFileSync(path.join(outDir, 'cost-policy.json'), JSON.stringify(policy, null, 2));
+
+  // patches/*
+  const fixes = buildTopFixes(analysis, savings);
+  writePatches(outDir, fixes);
 }
