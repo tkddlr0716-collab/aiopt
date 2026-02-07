@@ -1,27 +1,13 @@
 <!doctype html>
-<html lang="en">
+<html lang="ko">
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>AIOpt — pre-deploy LLM cost accident guardrail</title>
-  <meta name="description" content="AIOpt is a local-only, pre-deploy guardrail. Simulate cost accidents before merge/deploy, return exit code 0/2/3, and show results in CI Summary / PR comments. No server. No upload."/>
-  <meta property="og:title" content="AIOpt — pre-deploy LLM cost accident guardrail"/>
+  <title>AIOpt — 배포 전 LLM 비용사고 Guardrail</title>
+  <meta name="description" content="AIOpt는 로컬 전용 pre-deploy Guardrail입니다. 배포/머지 전에 LLM 비용 사고 가능성을 경고하고(Exit code 0/2/3), CI Summary/PR 코멘트로 자동 노출합니다. No server. No upload."/>
+  <meta property="og:title" content="AIOpt — 배포 전 LLM 비용사고 Guardrail"/>
   <meta property="og:description" content="npx aiopt install → guard. Exit code 0/2/3. Step Summary + PR comment. Local-only."/>
   <meta property="og:type" content="website"/>
-
-  <script>
-    // Default: English. If browser language indicates Korean, redirect to KO landing.
-    // (Static site equivalent of Accept-Language routing.)
-    (function () {
-      const params = new URLSearchParams(location.search);
-      const forced = params.get('lang');
-      if (forced === 'ko') return location.replace('./ko.html');
-      if (forced === 'en') return;
-      const navLang = (navigator.languages && navigator.languages.join(',')) || navigator.language || '';
-      if (/\bko\b/i.test(navLang) || /ko-/i.test(navLang)) return location.replace('./ko.html');
-    })();
-  </script>
-
   <style>
     :root{--bg:#070b16;--card:#0b1222;--txt:#e7eaf2;--muted:#a3acc2;--border:rgba(255,255,255,.10);--p1:#a78bfa;--p2:#34d399;--shadow:0 18px 70px rgba(0,0,0,.35)}
     *{box-sizing:border-box}
@@ -52,7 +38,7 @@
     <div class="nav">
       <div class="brand"><span class="mark"></span> AIOpt</div>
       <div style="display:flex; gap:14px; align-items:center; color:var(--muted); font-size:14px">
-        <a href="./ko.html?lang=ko" rel="noreferrer">한국어</a>
+        <a href="./index.html?lang=en" rel="noreferrer">English</a>
         <a href="https://github.com/tkddlr0716-collab/aiopt" target="_blank" rel="noreferrer">GitHub</a>
         <a href="https://www.npmjs.com/package/aiopt" target="_blank" rel="noreferrer">npm</a>
       </div>
@@ -60,15 +46,15 @@
 
     <div class="card">
       <div class="pill">Local-only · No server · No upload · CI-friendly</div>
-      <div class="title">Catch cost accidents before merge.</div>
+      <div class="title">배포 전에, 비용사고를 먼저 잡자.</div>
       <div class="sub">
-        Using your baseline usage logs, AIOpt simulates changes (model/context/retry/traffic) and returns
-        clear warnings + exit codes <b>0/2/3</b>.
+        baseline 사용 로그를 기반으로 변경(모델/컨텍스트/리트라이/트래픽)을 시뮬레이션하고,
+        경고 텍스트 + Exit code <b>0/2/3</b>로 반환합니다.
       </div>
 
       <div class="ctaRow">
-        <a class="btn" href="#quickstart">Try in 5 minutes</a>
-        <a class="btn secondary" href="./buy.html">Buy Pro</a>
+        <a class="btn" href="#quickstart">5분 체험</a>
+        <a class="btn secondary" href="./buy.html">Pro 구매</a>
         <a class="btn" href="https://www.npmjs.com/package/aiopt" target="_blank" rel="noreferrer">npm</a>
         <a class="btn" href="https://github.com/tkddlr0716-collab/aiopt#readme" target="_blank" rel="noreferrer">Docs</a>
       </div>
@@ -80,34 +66,34 @@
 $ npx aiopt guard --context-mult 1.2 --call-mult 10
 $ echo $?   # 0 OK / 2 WARN / 3 FAIL</pre>
         <img class="demo" src="./assets/demo/quickstart.gif" alt="AIOpt quickstart demo" loading="lazy"/>
-        <div class="foot">Files written: <span class="k">aiopt-output/guard-last.txt</span>, <span class="k">aiopt-output/guard-last.json</span></div>
+        <div class="foot">저장 파일: <span class="k">aiopt-output/guard-last.txt</span>, <span class="k">aiopt-output/guard-last.json</span></div>
       </div>
     </div>
 
     <div class="grid">
       <div class="card">
-        <h2>Show it in CI/PR</h2>
+        <h2>CI/PR에서 보이게</h2>
         <ul>
-          <li>Auto-prints to Step Summary</li>
-          <li>Auto-writes PR comments on WARN/FAIL</li>
-          <li>Use exit=3 to block merges</li>
+          <li>Step Summary에 자동 출력</li>
+          <li>WARN/FAIL이면 PR 코멘트 자동 작성</li>
+          <li>exit=3을 머지 차단으로 사용</li>
         </ul>
         <img class="demo" src="./assets/demo/guard.gif" alt="AIOpt guard demo" loading="lazy"/>
       </div>
       <div class="card">
-        <h2>Local dashboard</h2>
+        <h2>로컬 대시보드</h2>
         <ul>
           <li><span class="k">npx aiopt dashboard --port 3010</span></li>
-          <li>Binds to 127.0.0.1 (local-only)</li>
+          <li>127.0.0.1 바인딩(로컬 전용)</li>
         </ul>
         <img class="demo" src="./assets/demo/dash.gif" alt="AIOpt dashboard demo" loading="lazy"/>
       </div>
       <div class="card">
         <h2>SCAN: Top Fix 3</h2>
         <ul>
-          <li><span class="k">npx aiopt scan</span> → report + patch drafts</li>
-          <li>Data-driven top 3 suggestions (by impact)</li>
-          <li>Artifacts: <span class="k">aiopt-output/report.md</span>, <span class="k">report.json</span>, <span class="k">patches/*</span></li>
+          <li><span class="k">npx aiopt scan</span> → 리포트 + 패치 초안 생성</li>
+          <li>데이터 기반 추천 3개(impact 순)</li>
+          <li>아티팩트: <span class="k">aiopt-output/report.md</span>, <span class="k">report.json</span>, <span class="k">patches/*</span></li>
         </ul>
         <img class="demo" src="./assets/demo/scan.gif" alt="AIOpt scan demo" loading="lazy"/>
       </div>
