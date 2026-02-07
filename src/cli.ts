@@ -226,7 +226,28 @@ program
     });
 
     console.log(r.message);
+
+    // Persist last guard output for local dashboard / CI attachments
+    try {
+      const outDir = path.resolve(DEFAULT_OUTPUT_DIR);
+      fs.mkdirSync(outDir, { recursive: true });
+      fs.writeFileSync(path.join(outDir, 'guard-last.txt'), r.message);
+      fs.writeFileSync(path.join(outDir, 'guard-last.json'), JSON.stringify({ ts: new Date().toISOString(), exitCode: r.exitCode }, null, 2));
+    } catch {
+      // ignore
+    }
+
     process.exit(r.exitCode);
+  });
+
+// Local-only dashboard (no auth; binds to 127.0.0.1)
+program
+  .command('dashboard')
+  .description('Local dashboard (localhost only): view last guard + last scan outputs')
+  .option('--port <n>', 'port (default: 3010)', (v) => Number(v), 3010)
+  .action(async (opts) => {
+    const { startDashboard } = await import('./dashboard');
+    await startDashboard(process.cwd(), { port: Number(opts.port || 3010) });
   });
 
 program.parse(process.argv);

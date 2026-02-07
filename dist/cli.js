@@ -433,7 +433,8 @@ var require_package = __commonJS({
         dev: "node --enable-source-maps dist/cli.js",
         prepack: "npm run build",
         "test:npx": `npm pack --silent && node -e "const fs=require('fs');const p=fs.readdirSync('.').find(f=>/^aiopt-.*\\.tgz$/.test(f)); if(!p) throw new Error('tgz not found'); console.log('tgz',p);" && npx --yes ./$(ls -1 aiopt-*.tgz | tail -n 1) install --force && npx --yes ./$(ls -1 aiopt-*.tgz | tail -n 1) doctor && npx --yes ./$(ls -1 aiopt-*.tgz | tail -n 1) scan && test -f ./aiopt-output/report.md && echo OK`,
-        "test:guard": "npm run build --silent && node scripts/test-guard.js"
+        "test:guard": "npm run build --silent && node scripts/test-guard.js",
+        "test:license": "npm run build --silent && node scripts/test-license.js"
       },
       dependencies: {
         commander: "^14.0.0",
@@ -1083,9 +1084,125 @@ var init_guard = __esm({
   }
 });
 
+// src/dashboard.ts
+var dashboard_exports = {};
+__export(dashboard_exports, {
+  startDashboard: () => startDashboard
+});
+async function startDashboard(cwd, opts) {
+  const host = "127.0.0.1";
+  const port = opts.port || 3010;
+  const outDir = import_path7.default.join(cwd, "aiopt-output");
+  const file = (name) => import_path7.default.join(outDir, name);
+  function readOrNull(p) {
+    try {
+      if (!import_fs7.default.existsSync(p)) return null;
+      return import_fs7.default.readFileSync(p, "utf8");
+    } catch {
+      return null;
+    }
+  }
+  const indexHtml = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>AIOpt Local Dashboard</title>
+  <style>
+    body{font-family:ui-sans-serif,system-ui,Arial; margin:16px; max-width:980px}
+    .row{display:flex; gap:12px; flex-wrap:wrap}
+    .card{border:1px solid #ddd; border-radius:10px; padding:12px; flex:1; min-width:320px}
+    pre{white-space:pre-wrap; word-break:break-word; background:#0b1020; color:#e6e6e6; padding:12px; border-radius:10px; overflow:auto}
+    a{color:#2d6cdf}
+  </style>
+</head>
+<body>
+  <h1>AIOpt Local Dashboard</h1>
+  <p>Local-only (bind: 127.0.0.1). Reads files from <code>./aiopt-output/</code>.</p>
+
+  <div class="row">
+    <div class="card">
+      <h2>Last Guard</h2>
+      <div id="guardMeta"></div>
+      <pre id="guard">loading...</pre>
+      <p><a href="/api/guard-last.txt" target="_blank">raw</a></p>
+    </div>
+    <div class="card">
+      <h2>Last Scan</h2>
+      <pre id="scan">loading...</pre>
+      <p>
+        <a href="/api/report.md" target="_blank">report.md</a> \xB7
+        <a href="/api/report.json" target="_blank">report.json</a>
+      </p>
+    </div>
+  </div>
+
+<script>
+async function load() {
+  const guardTxt = await fetch('/api/guard-last.txt').then(r=>r.ok?r.text():null);
+  const guardMeta = await fetch('/api/guard-last.json').then(r=>r.ok?r.json():null);
+  document.getElementById('guard').textContent = guardTxt || '(no guard-last.txt yet)';
+  document.getElementById('guardMeta').textContent = guardMeta ? ('exit=' + guardMeta.exitCode + ' @ ' + guardMeta.ts) : '';
+
+  const reportMd = await fetch('/api/report.md').then(r=>r.ok?r.text():null);
+  document.getElementById('scan').textContent = reportMd || '(no report.md yet \u2014 run: aiopt scan)';
+}
+load();
+</script>
+</body>
+</html>`;
+  const server = import_http.default.createServer((req, res) => {
+    const url = req.url || "/";
+    if (url === "/" || url === "/index.html") {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(indexHtml);
+      return;
+    }
+    if (url.startsWith("/api/")) {
+      const name = url.replace("/api/", "");
+      const allow = /* @__PURE__ */ new Set(["guard-last.txt", "guard-last.json", "report.md", "report.json"]);
+      if (!allow.has(name)) {
+        res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+        res.end("not found");
+        return;
+      }
+      const p = file(name);
+      const txt = readOrNull(p);
+      if (txt === null) {
+        res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+        res.end("missing");
+        return;
+      }
+      const ct = name.endsWith(".json") ? "application/json; charset=utf-8" : "text/plain; charset=utf-8";
+      res.writeHead(200, { "content-type": ct });
+      res.end(txt);
+      return;
+    }
+    res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+    res.end("not found");
+  });
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, host, () => resolve());
+  });
+  console.log(`OK: dashboard http://${host}:${port}/`);
+  console.log("Tip: run `aiopt guard ...` and `aiopt scan` to populate aiopt-output files.");
+  await new Promise(() => {
+  });
+}
+var import_http, import_fs7, import_path7;
+var init_dashboard = __esm({
+  "src/dashboard.ts"() {
+    "use strict";
+    import_http = __toESM(require("http"));
+    import_fs7 = __toESM(require("fs"));
+    import_path7 = __toESM(require("path"));
+  }
+});
+
 // src/cli.ts
-var import_fs7 = __toESM(require("fs"));
-var import_path7 = __toESM(require("path"));
+var import_fs8 = __toESM(require("fs"));
+var import_path8 = __toESM(require("path"));
 var import_commander = require("commander");
 
 // src/io.ts
@@ -1146,17 +1263,17 @@ var program = new import_commander.Command();
 var DEFAULT_INPUT = "./aiopt-output/usage.jsonl";
 var DEFAULT_OUTPUT_DIR = "./aiopt-output";
 function loadRateTable() {
-  const p = import_path7.default.join(__dirname, "..", "rates", "rate_table.json");
-  return JSON.parse(import_fs7.default.readFileSync(p, "utf8"));
+  const p = import_path8.default.join(__dirname, "..", "rates", "rate_table.json");
+  return JSON.parse(import_fs8.default.readFileSync(p, "utf8"));
 }
 program.name("aiopt").description("AI \uBE44\uC6A9 \uC790\uB3D9 \uC808\uAC10 \uC778\uD504\uB77C \u2014 \uC11C\uBC84 \uC5C6\uB294 \uB85C\uCEEC CLI MVP").version(require_package().version);
 program.command("init").description("aiopt-input/ \uBC0F \uC0D8\uD50C usage.jsonl, aiopt-output/ \uC0DD\uC131").action(() => {
   ensureDir("./aiopt-input");
   ensureDir("./aiopt-output");
-  const sampleSrc = import_path7.default.join(__dirname, "..", "samples", "sample_usage.jsonl");
-  const dst = import_path7.default.join("./aiopt-input", "usage.jsonl");
-  if (!import_fs7.default.existsSync(dst)) {
-    import_fs7.default.copyFileSync(sampleSrc, dst);
+  const sampleSrc = import_path8.default.join(__dirname, "..", "samples", "sample_usage.jsonl");
+  const dst = import_path8.default.join("./aiopt-input", "usage.jsonl");
+  if (!import_fs8.default.existsSync(dst)) {
+    import_fs8.default.copyFileSync(sampleSrc, dst);
     console.log("Created ./aiopt-input/usage.jsonl (sample)");
   } else {
     console.log("Exists ./aiopt-input/usage.jsonl (skip)");
@@ -1166,7 +1283,7 @@ program.command("init").description("aiopt-input/ \uBC0F \uC0D8\uD50C usage.json
 program.command("scan").description("\uC785\uB825 \uB85C\uADF8(JSONL/CSV)\uB97C \uBD84\uC11D\uD558\uACE0 report.md/report.json + patches\uAE4C\uC9C0 \uC0DD\uC131").option("--input <path>", "input file path (default: ./aiopt-output/usage.jsonl)", DEFAULT_INPUT).option("--out <dir>", "output dir (default: ./aiopt-output)", DEFAULT_OUTPUT_DIR).action(async (opts) => {
   const inputPath = String(opts.input);
   const outDir = String(opts.out);
-  if (!import_fs7.default.existsSync(inputPath)) {
+  if (!import_fs8.default.existsSync(inputPath)) {
     console.error(`Input not found: ${inputPath}`);
     process.exit(1);
   }
@@ -1182,7 +1299,7 @@ program.command("scan").description("\uC785\uB825 \uB85C\uADF8(JSONL/CSV)\uB97C 
     const tag = f.status === "no-issue" ? "(no issue detected)" : `($${Math.round(f.impact_usd * 100) / 100})`;
     console.log(`${i + 1}) ${f.title} ${tag}`);
   });
-  console.log(`Report: ${import_path7.default.join(outDir, "report.md")}`);
+  console.log(`Report: ${import_path8.default.join(outDir, "report.md")}`);
 });
 program.command("policy").description("\uB9C8\uC9C0\uB9C9 scan \uACB0\uACFC \uAE30\uBC18\uC73C\uB85C cost-policy.json\uB9CC \uC7AC\uC0DD\uC131 (MVP: scan\uACFC \uB3D9\uC77C \uB85C\uC9C1)").option("--input <path>", "input file path (default: ./aiopt-input/usage.jsonl)", DEFAULT_INPUT).option("--out <dir>", "output dir (default: ./aiopt-output)", DEFAULT_OUTPUT_DIR).action((opts) => {
   const inputPath = String(opts.input);
@@ -1192,7 +1309,7 @@ program.command("policy").description("\uB9C8\uC9C0\uB9C9 scan \uACB0\uACFC \uAE
   const { policy } = analyze(rt, events);
   policy.generated_from.input = inputPath;
   ensureDir(outDir);
-  import_fs7.default.writeFileSync(import_path7.default.join(outDir, "cost-policy.json"), JSON.stringify(policy, null, 2));
+  import_fs8.default.writeFileSync(import_path8.default.join(outDir, "cost-policy.json"), JSON.stringify(policy, null, 2));
   console.log(`OK: ${outDir}/cost-policy.json`);
 });
 program.command("install").description("Install AIOpt guardrails: create aiopt/ + policies + usage.jsonl").option("--force", "overwrite existing files").option("--seed-sample", "seed 1 sample line into aiopt-output/usage.jsonl").action(async (opts) => {
@@ -1232,12 +1349,12 @@ licenseCmd.command("verify").option("--path <path>", "license.json path (default
   const { DEFAULT_PUBLIC_KEY_PEM: DEFAULT_PUBLIC_KEY_PEM2, defaultLicensePath: defaultLicensePath2, readLicenseFile: readLicenseFile2, verifyLicenseKey: verifyLicenseKey2 } = await Promise.resolve().then(() => (init_license(), license_exports));
   const p = opts.path ? String(opts.path) : defaultLicensePath2(process.cwd());
   const pub = process.env.AIOPT_LICENSE_PUBKEY || DEFAULT_PUBLIC_KEY_PEM2;
-  if (!import_fs7.default.existsSync(p)) {
+  if (!import_fs8.default.existsSync(p)) {
     console.error(`FAIL: license file not found: ${p}`);
     process.exit(3);
   }
   const f = readLicenseFile2(p);
-  const v = verifyLicenseKey2(f.key, DEFAULT_PUBLIC_KEY_PEM2);
+  const v = verifyLicenseKey2(f.key, pub);
   if (v.ok) {
     console.log("OK: license verified");
     process.exit(0);
@@ -1245,10 +1362,27 @@ licenseCmd.command("verify").option("--path <path>", "license.json path (default
   console.error(`FAIL: license invalid (${v.reason || "unknown"})`);
   process.exit(3);
 });
+licenseCmd.command("status").option("--path <path>", "license.json path (default: ./aiopt/license.json)").action(async (opts) => {
+  const { DEFAULT_PUBLIC_KEY_PEM: DEFAULT_PUBLIC_KEY_PEM2, defaultLicensePath: defaultLicensePath2, readLicenseFile: readLicenseFile2, verifyLicenseKey: verifyLicenseKey2 } = await Promise.resolve().then(() => (init_license(), license_exports));
+  const p = opts.path ? String(opts.path) : defaultLicensePath2(process.cwd());
+  const pub = process.env.AIOPT_LICENSE_PUBKEY || DEFAULT_PUBLIC_KEY_PEM2;
+  if (!import_fs8.default.existsSync(p)) {
+    console.log("NO_LICENSE");
+    process.exit(2);
+  }
+  const f = readLicenseFile2(p);
+  const v = verifyLicenseKey2(f.key, pub);
+  if (v.ok) {
+    console.log(`OK: ${f.payload.plan} exp=${f.payload.exp}`);
+    process.exit(0);
+  }
+  console.log(`INVALID: ${v.reason || "unknown"}`);
+  process.exit(3);
+});
 program.command("guard").description("Pre-deploy guardrail: compare baseline usage vs candidate change and print warnings (exit codes 0/2/3)").option("--input <path>", "baseline usage jsonl/csv (default: ./aiopt-output/usage.jsonl)", DEFAULT_INPUT).option("--provider <provider>", "candidate provider override").option("--model <model>", "candidate model override").option("--context-mult <n>", "multiply input_tokens by n", (v) => Number(v)).option("--output-mult <n>", "multiply output_tokens by n", (v) => Number(v)).option("--retries-delta <n>", "add n to retries", (v) => Number(v)).option("--call-mult <n>", "multiply call volume by n (traffic spike)", (v) => Number(v)).action(async (opts) => {
   const rt = loadRateTable();
   const inputPath = String(opts.input);
-  if (!import_fs7.default.existsSync(inputPath)) {
+  if (!import_fs8.default.existsSync(inputPath)) {
     console.error(`FAIL: baseline not found: ${inputPath}`);
     process.exit(3);
   }
@@ -1266,7 +1400,18 @@ program.command("guard").description("Pre-deploy guardrail: compare baseline usa
     }
   });
   console.log(r.message);
+  try {
+    const outDir = import_path8.default.resolve(DEFAULT_OUTPUT_DIR);
+    import_fs8.default.mkdirSync(outDir, { recursive: true });
+    import_fs8.default.writeFileSync(import_path8.default.join(outDir, "guard-last.txt"), r.message);
+    import_fs8.default.writeFileSync(import_path8.default.join(outDir, "guard-last.json"), JSON.stringify({ ts: (/* @__PURE__ */ new Date()).toISOString(), exitCode: r.exitCode }, null, 2));
+  } catch {
+  }
   process.exit(r.exitCode);
+});
+program.command("dashboard").description("Local dashboard (localhost only): view last guard + last scan outputs").option("--port <n>", "port (default: 3010)", (v) => Number(v), 3010).action(async (opts) => {
+  const { startDashboard: startDashboard2 } = await Promise.resolve().then(() => (init_dashboard(), dashboard_exports));
+  await startDashboard2(process.cwd(), { port: Number(opts.port || 3010) });
 });
 program.parse(process.argv);
 //# sourceMappingURL=cli.js.map
