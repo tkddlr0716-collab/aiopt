@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>AIOpt — 배포 전 LLM 비용사고 Guardrail</title>
+  <meta name="description" content="AIOpt는 로컬 전용 pre-deploy Guardrail입니다. 배포/머지 전에 LLM 비용 사고 가능성을 경고하고(Exit code 0/2/3), CI Summary/PR 코멘트로 자동 노출합니다. No server. No upload."/>
+
+  <meta property="og:title" content="AIOpt — 배포 전 LLM 비용사고 Guardrail"/>
+  <meta property="og:description" content="npx aiopt install → guard. Exit code 0/2/3. Step Summary + PR comment. Local-only."/>
+  <meta property="og:type" content="website"/>
+  <meta property="og:image" content="assets/og.svg"/>
+
+  <style>
+    :root{
+      --bg:#070b16;
+      --card:#0b1222;
+      --card2:#0e1730;
+      --txt:#e7eaf2;
+      --muted:#a3acc2;
+      --border:rgba(255,255,255,.10);
+      --p1:#a78bfa;
+      --p2:#34d399;
+      --p3:#60a5fa;
+      --shadow: 0 18px 70px rgba(0,0,0,.35);
+    }
+    *{box-sizing:border-box}
+    body{margin:0; font-family: ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto; background: radial-gradient(1000px 600px at 20% 0%, rgba(167,139,250,.18), transparent 55%), radial-gradient(900px 700px at 90% 10%, rgba(52,211,153,.12), transparent 50%), var(--bg); color:var(--txt)}
+    a{color:#bfffe3; text-decoration:none}
+    a:hover{text-decoration:underline}
+
+    .wrap{max-width:1100px; margin:0 auto; padding:26px 18px 46px}
+    .nav{display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px}
+    .brand{display:flex; align-items:center; gap:10px; font-weight:950; letter-spacing:-.02em}
+    .mark{width:12px;height:12px;border-radius:4px;background:linear-gradient(90deg,var(--p1),var(--p2))}
+
+    .hero{
+      display:grid;
+      grid-template-columns: 1.2fr .8fr;
+      gap:16px;
+      align-items:stretch;
+    }
+    @media(max-width: 940px){.hero{grid-template-columns:1fr}}
+
+    .card{background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,0)), var(--card);
+      border:1px solid var(--border); border-radius:18px; padding:18px; box-shadow: var(--shadow)}
+
+    .pill{display:inline-flex; align-items:center; gap:8px; padding:7px 10px; border-radius:999px; border:1px solid var(--border);
+      background:rgba(255,255,255,.03); color:var(--muted); font-size:12px; line-height:1}
+    .dot{width:8px;height:8px;border-radius:99px;background:linear-gradient(90deg,var(--p3),var(--p2))}
+
+    .title{font-size:44px; line-height:1.03; font-weight:980; letter-spacing:-0.03em; margin-top:12px}
+    .sub{margin-top:12px; color:var(--muted); font-size:16px; line-height:1.7}
+
+    .ctaRow{display:flex; gap:10px; flex-wrap:wrap; margin-top:16px}
+    .btn{display:inline-flex; align-items:center; justify-content:center; gap:10px;
+      padding:10px 12px; border-radius:14px; border:1px solid var(--border);
+      background: rgba(167,139,250,.14);
+      color:#efe9ff; font-weight:900; min-height:40px}
+    .btn.secondary{background:rgba(52,211,153,.12); color:#cffff0}
+    .btn.ghost{background:rgba(255,255,255,.03); color:#e7eaf2}
+
+    pre{margin:0; white-space:pre-wrap; word-break:break-word; background: rgba(3,6,14,.65);
+      border:1px solid rgba(255,255,255,.12);
+      padding:12px; border-radius:14px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.05);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono"; font-size:13px; line-height:1.55}
+
+    .k{padding:2px 6px; border-radius:8px; border:1px solid var(--border); font-family: ui-monospace; font-size:12px; color:#d7def2; background:rgba(255,255,255,.03)}
+
+    .grid{display:grid; grid-template-columns:repeat(3, 1fr); gap:14px; margin-top:14px}
+    @media(max-width: 940px){.grid{grid-template-columns:1fr}}
+
+    h2{margin:0 0 10px 0; font-size:18px; letter-spacing:-.01em}
+    ul{margin:8px 0 0 18px; color:#d2d8e8}
+    li{margin:6px 0; line-height:1.55}
+
+    .section{margin-top:16px}
+    .foot{margin-top:10px; color:var(--muted); font-size:12px; line-height:1.6}
+
+    .img{width:100%; border-radius:16px; border:1px solid rgba(255,255,255,.10); background:rgba(255,255,255,.03)}
+
+    .split{display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:14px}
+    @media(max-width: 940px){.split{grid-template-columns:1fr}}
+
+    .hr{height:1px; background:rgba(255,255,255,.08); margin:14px 0}
+
+    .pricing{display:grid; grid-template-columns:repeat(3, 1fr); gap:14px; margin-top:14px}
+    @media(max-width: 940px){.pricing{grid-template-columns:1fr}}
+    .price{font-size:30px; font-weight:980}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="nav">
+      <div class="brand"><span class="mark"></span> AIOpt</div>
+      <div style="display:flex; gap:14px; align-items:center; color:var(--muted); font-size:14px">
+        <a href="https://github.com/tkddlr0716-collab/aiopt" target="_blank" rel="noreferrer">GitHub</a>
+        <a href="https://www.npmjs.com/package/aiopt" target="_blank" rel="noreferrer">npm</a>
+      </div>
+    </div>
+
+    <div class="hero">
+      <div class="card">
+        <div class="pill"><span class="dot"></span> Local-only · No server · No upload · CI-friendly</div>
+        <div class="title">배포 전에, 비용사고를 먼저 잡자.</div>
+        <div class="sub">
+          AIOpt는 baseline 사용 로그를 기반으로 <b>변경(모델/컨텍스트/리트라이/트래픽)</b>을 시뮬레이션하고,
+          <b>사고 가능성</b>을 텍스트 경고 + <b>Exit code 0/2/3</b>로 반환합니다.
+          <br/>→ 사람은 로그를 “계속” 보는 게 아니라, PR에서 <b>Summary/코멘트</b>로 “필요할 때만” 보면 됩니다.
+        </div>
+
+        <div class="ctaRow">
+          <a class="btn" href="#quickstart">5분 체험</a>
+          <a class="btn secondary" href="#ci">CI/PR 자동 노출</a>
+          <a class="btn ghost" href="#dashboard">로컬 대시보드</a>
+          <a class="btn ghost" href="#pricing">Pricing</a>
+        </div>
+
+        <div class="section" id="quickstart">
+          <h2>Quickstart (Guardrail)</h2>
+          <pre>$ npx aiopt install --force
+$ npx aiopt guard --context-mult 1.2 --call-mult 10
+$ echo $?   # 0 OK / 2 WARN / 3 FAIL</pre>
+          <div class="foot">저장 파일: <span class="k">aiopt-output/guard-last.txt</span>, <span class="k">aiopt-output/guard-last.json</span></div>
+        </div>
+
+        <div class="hr"></div>
+
+        <div class="split">
+          <div>
+            <h2>Guard가 보는 변화</h2>
+            <ul>
+              <li><b>model/provider</b> 변경</li>
+              <li><b>context/output</b> 길이 변화</li>
+              <li><b>retries</b> 증가(특히 high confidence)</li>
+              <li><b>traffic spike</b>: <span class="k">--call-mult</span></li>
+            </ul>
+          </div>
+          <div>
+            <h2>출력(복붙 가능한 텍스트)</h2>
+            <pre>WARN: possible LLM cost accident
+Summary: baseline=$X → candidate=$Y (Δ=$Z)
+Impact (monthly est): +$...
+Accident risk: Medium/High
+Confidence: Low/Medium/High (reasons...)
+Recommendation: ...</pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <img class="img" src="assets/hero.svg" alt="AIOpt"/>
+        <div class="foot">로컬에서 동작하고, CI에 붙이면 PR에서 바로 보입니다.</div>
+
+        <div class="section">
+          <h2>Optional: Local Dashboard</h2>
+          <pre>$ npx aiopt dashboard --port 3010
+# open http://127.0.0.1:3010/</pre>
+          <div class="foot">로컬(127.0.0.1) 바인딩. 마지막 Guard/Scan 결과를 한 화면에서 확인.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid" id="ci" style="margin-top:14px">
+      <div class="card">
+        <h2>CI Summary</h2>
+        <ul>
+          <li>Actions <b>Step Summary</b>에 자동 출력</li>
+          <li>로그 스크롤 없이 한눈에 확인</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h2>PR Comment</h2>
+        <ul>
+          <li>WARN/FAIL이면 PR 쓰레드에 코멘트</li>
+          <li>리뷰어가 “대화창”에서 바로 봄</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h2>Merge Gate</h2>
+        <ul>
+          <li><span class="k">exit=3</span>을 머지 차단으로 사용</li>
+          <li>비용사고를 “배포 전에” 끊기</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card" id="pricing" style="margin-top:14px">
+      <h2>Pricing (서버 없는 오프라인 라이선스)</h2>
+      <div class="pricing">
+        <div class="card" style="background:rgba(255,255,255,.02)">
+          <div class="pill"><span class="dot"></span> Free</div>
+          <div class="price">$0</div>
+          <div class="sub">install/doctor/guard/scan 기본 기능</div>
+        </div>
+        <div class="card" style="background:rgba(167,139,250,.10)">
+          <div class="pill"><span class="dot"></span> Pro</div>
+          <div class="price">$19<span style="font-size:14px;color:var(--muted)">/mo</span></div>
+          <div class="sub">더 강한 rule pack + 더 넓은 rate table + 팀 표준화</div>
+        </div>
+        <div class="card" style="background:rgba(52,211,153,.08)">
+          <div class="pill"><span class="dot"></span> Team</div>
+          <div class="price">$49<span style="font-size:14px;color:var(--muted)">/mo</span></div>
+          <div class="sub">좌석/정책 팩 공유 + policy lint</div>
+        </div>
+      </div>
+      <div class="foot">결제(Gumroad/Polar) → 서명된 키 발급 → <span class="k">aiopt license activate</span> (오프라인 검증)</div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <h2>Contact</h2>
+      <div class="sub">Instagram: <b>@sangikpp</b> · GitHub Issues 환영</div>
+      <div class="foot">© 2026 AIOpt. Local-first by design.</div>
+    </div>
+  </div>
+</body>
+</html>
