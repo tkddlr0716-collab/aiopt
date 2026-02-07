@@ -10,6 +10,8 @@ AIOpt는 **Node.js 기반 로컬 CLI**입니다.
 
 CI에서 확인하는 것:
 - `install → doctor → guard` (exit code/요약 출력)
+- `guard` diff mode: `--baseline/--candidate`로 **실제 두 로그 비교**
+- `guard` budget gate: `--budget-monthly` 플래그 경로
 - (옵션) `scan` 기본 경로에서 동작 및 산출물 생성
 - fixtures 기반 `npm run test:guard`
 - offline license `npm run test:license`

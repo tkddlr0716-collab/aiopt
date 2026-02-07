@@ -67,6 +67,12 @@ jobs:
           # allow 0 or 2 here
           test "$code" = "0" -o "$code" = "2"
 
+      - name: Guard diff mode (fixtures: baseline vs candidate)
+        run: node dist/cli.js guard --baseline ./fixtures/baseline_small.jsonl --candidate ./fixtures/candidate_small.jsonl
+
+      - name: Guard budget gate flag path (smoke)
+        run: node dist/cli.js guard --baseline ./fixtures/baseline_small.jsonl --candidate ./fixtures/candidate_small.jsonl --budget-monthly 999999
+
       - name: Guard tests (fixtures)
         run: npm run test:guard
 

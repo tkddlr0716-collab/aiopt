@@ -23,11 +23,21 @@ Exit codes:
 - `2` WARN (cost accident possible)
 - `3` FAIL (merge-blocking)
 
-Common knobs:
+Common knobs (transform mode):
 - `--context-mult <n>` (prompt/context grows)
 - `--output-mult <n>` (output grows)
 - `--retries-delta <n>` (more retries/attempts)
 - `--call-mult <n>` (traffic spike / call volume)
+
+Budget gate:
+- `--budget-monthly <usd>` (FAIL if candidate monthly cost exceeds your budget)
+
+Diff mode (real before/after logs):
+```bash
+npx aiopt guard --baseline ./usage-baseline.jsonl --candidate ./usage-candidate.jsonl
+```
+
+Output includes a short **Top causes** summary (1–3) to explain the biggest drivers.
 
 ## CI integration (GitHub Actions)
 You can run `aiopt guard` in CI to catch accidental cost blow-ups before merge.
