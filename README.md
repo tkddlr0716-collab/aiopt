@@ -50,6 +50,15 @@ In diff mode, it also prints **token deltas** and **top cost deltas** by model +
 ## CI integration (GitHub Actions)
 You can run `aiopt guard` in CI to catch accidental cost blow-ups before merge.
 
+### Diff mode (recommended)
+Compare two real log sets (no guesswork):
+```bash
+npx aiopt guard --baseline ./baseline.jsonl --candidate ./candidate.jsonl
+```
+Diff mode also prints:
+- token deltas (input/output)
+- top deltas by model and by feature
+
 ### 1) Non-blocking (report only)
 ```yaml
 - name: AI cost guard (non-blocking)
@@ -71,7 +80,7 @@ Tip: print guard output into the GitHub Actions **Step Summary** so you don’t 
 npx aiopt dashboard --port 3010
 ```
 - Binds to **127.0.0.1** (local-only)
-- Reads local JSONL/CSV → renders locally
+- Shows: guard verdict + guard history + 7-day cost trend (sparkline)
 
 ## Optional: deeper local analysis (`scan`)
 `scan` generates a more detailed local report + patch stubs (still local-only).
