@@ -45,10 +45,15 @@ export function analyze(rt: RateTable, events: UsageEvent[]): { analysis: Analys
 
   const perEventCosts: Array<{ ev: UsageEvent; cost: number }> = [];
 
+  let baseTotal = 0;
   let total = 0;
   for (const ev of events) {
     const cr = costOfEvent(rt, ev);
-    total += cr.cost;
+    const retries = Math.max(0, Number(ev.retries || 0));
+    const costWithRetries = cr.cost * (1 + retries);
+
+    baseTotal += cr.cost;
+    total += costWithRetries;
     perEventCosts.push({ ev, cost: cr.cost });
 
     const mk = `${ev.provider}:${ev.model}`;
@@ -70,58 +75,80 @@ export function analyze(rt: RateTable, events: UsageEvent[]): { analysis: Analys
     }
   }
 
-  // --- Savings lever 1: routing (cheap features -> cheapest known model per provider)
-  let routingSavings = 0;
-  for (const { ev } of perEventCosts) {
-    if (!ROUTE_TO_CHEAP_FEATURES.has(String(ev.feature_tag || '').toLowerCase())) continue;
+  // --- Savings simulator (refactor): per-event before/after with caps + no double counting
+  type Pot = { routing: number; context: number; retry: number; total: number; waste: number };
+  const potByIdx: Pot[] = [];
 
-    const provider = ev.provider;
-    const p = rt.providers[provider];
-    if (!p) continue;
+  // Potential routing/context computed per event
+  for (const { ev, cost } of perEventCosts) {
+    const retries = Math.max(0, Number(ev.retries || 0));
+    const total_i = cost * (1 + retries);
+    const waste_i = cost * retries;
 
-    // Choose cheapest model by (input+output) average.
-    const entries = Object.entries(p.models);
-    if (entries.length === 0) continue;
-    const cheapest = entries
-      .map(([name, r]) => ({ name, score: (r.input + r.output) / 2, r }))
-      .sort((a, b) => a.score - b.score)[0];
+    let routing_i = 0;
+    if (ROUTE_TO_CHEAP_FEATURES.has(String(ev.feature_tag || '').toLowerCase())) {
+      const provider = ev.provider;
+      const p = rt.providers[provider];
+      if (p) {
+        const entries = Object.entries(p.models);
+        if (entries.length > 0) {
+          const cheapest = entries
+            .map(([name, r]) => ({ name, score: (r.input + r.output) / 2, r }))
+            .sort((a, b) => a.score - b.score)[0];
+          const currentRate = getRates(rt, provider, ev.model);
+          if (currentRate && currentRate.kind !== 'estimated') {
+            const currentCost = (ev.input_tokens / 1e6) * currentRate.input + (ev.output_tokens / 1e6) * currentRate.output;
+            const cheapCost = (ev.input_tokens / 1e6) * cheapest.r.input + (ev.output_tokens / 1e6) * cheapest.r.output;
+            const diff = (currentCost - cheapCost) * (1 + retries);
+            routing_i = Math.max(0, diff);
+          }
+        }
+      }
+    }
 
-    // current cost vs cheapest cost
-    const currentRate = getRates(rt, provider, ev.model);
-    if (!currentRate) continue;
-    if (currentRate.kind === 'estimated') continue; // unknown model: policy not applied
-
-    const currentCost = (ev.input_tokens / 1e6) * currentRate.input + (ev.output_tokens / 1e6) * currentRate.output;
-    const cheapCost = (ev.input_tokens / 1e6) * cheapest.r.input + (ev.output_tokens / 1e6) * cheapest.r.output;
-    const diff = currentCost - cheapCost;
-    if (diff > 0) routingSavings += diff;
+    // context: top 20% rule is applied later by index set
+    potByIdx.push({ routing: routing_i, context: 0, retry: waste_i, total: total_i, waste: waste_i });
   }
 
-  // --- Savings lever 2: context reduction estimate
-  // Deterministic: top 20% by input_tokens -> reduce input_tokens by 25%
-  const sortedByInput = [...events].sort((a, b) => (b.input_tokens || 0) - (a.input_tokens || 0));
-  const k = Math.max(1, Math.floor(sortedByInput.length * 0.2));
-  const contextTargets = sortedByInput.slice(0, k);
-  let contextSavings = 0;
-  for (const ev of contextTargets) {
+  // context potential assignment (deterministic): top 20% by input_tokens => 25% reduction
+  const sortedIdx = [...events.map((e, i) => ({ i, input: Number(e.input_tokens || 0) }))].sort((a, b) => b.input - a.input);
+  const k = Math.max(1, Math.floor(sortedIdx.length * 0.2));
+  const topIdx = new Set(sortedIdx.slice(0, k).map(x => x.i));
+  for (let i = 0; i < events.length; i++) {
+    if (!topIdx.has(i)) continue;
+    const ev = events[i];
+    const retries = Math.max(0, Number(ev.retries || 0));
     const r = getRates(rt, ev.provider, ev.model);
     if (!r) continue;
-    const inputPerM = r.input;
-    const saveTokens = (ev.input_tokens || 0) * 0.25;
-    contextSavings += (saveTokens / 1e6) * inputPerM;
+    const saveTokens = (Number(ev.input_tokens || 0)) * 0.25;
+    const diff = (saveTokens / 1e6) * r.input * (1 + retries);
+    potByIdx[i].context = Math.max(0, diff);
   }
 
-  // --- Savings lever 3: retry waste
-  // retries>=1 -> wasted cost = base cost per call * retries
+  // Allocate savings without overlap (routing -> context -> retry), each capped by remaining cost.
+  let routingSavings = 0;
+  let contextSavings = 0;
   let retryWaste = 0;
-  for (const ev of events) {
-    const retries = Number(ev.retries || 0);
-    if (retries <= 0) continue;
-    const base = costOfEvent(rt, { ...ev, retries: 0 }).cost;
-    retryWaste += base * retries;
+
+  for (const p of potByIdx) {
+    let remaining = p.total;
+
+    const rSave = Math.min(p.routing, remaining);
+    remaining -= rSave;
+    routingSavings += rSave;
+
+    const cSave = Math.min(p.context, remaining);
+    remaining -= cSave;
+    contextSavings += cSave;
+
+    // Retry tuning can only save the waste portion, and cannot exceed remaining.
+    const retrySave = Math.min(p.retry, remaining);
+    retryWaste += retrySave;
   }
 
   const estimatedSavingsTotal = routingSavings + contextSavings + retryWaste;
+  // Global guard
+  const guardedSavingsTotal = Math.min(estimatedSavingsTotal, total);
 
   const analysis: AnalysisJson = {
     total_cost: round2(total),
@@ -133,14 +160,14 @@ export function analyze(rt: RateTable, events: UsageEvent[]): { analysis: Analys
   };
 
   const savings: Savings = {
-    estimated_savings_total: round2(estimatedSavingsTotal),
+    estimated_savings_total: round2(guardedSavingsTotal),
     routing_savings: round2(routingSavings),
     context_savings: round2(contextSavings),
     retry_waste: round2(retryWaste),
     notes: [
       `a) 모델 라우팅 절감(추정): $${round2(routingSavings)}`,
-      `b) 컨텍스트 감축(추정): $${round2(contextSavings)} (상위 20% input에 25% 감축 가정)`,
-      `c) 재시도/오류 낭비: $${round2(retryWaste)} (retries 기반)`
+      `b) 컨텍스트 감축(추정): $${round2(contextSavings)} (상위 20% input에 25% 감축 가정)` ,
+      `c) 재시도/오류 낭비(상한 적용): $${round2(retryWaste)} (retries 기반)`
     ]
   };
 
@@ -205,9 +232,22 @@ export function writeOutputs(outDir: string, analysis: AnalysisJson, savings: Sa
   fs.writeFileSync(path.join(outDir, 'analysis.json'), JSON.stringify(analysis, null, 2));
 
   // report.json is the “one file to parse” summary for downstream tooling.
+  const unknownCount = analysis.unknown_models?.length || 0;
+  const confidence = unknownCount > 0 ? 'LOW' : 'MED';
+  const ratio = analysis.total_cost > 0 ? (savings.estimated_savings_total / analysis.total_cost) : 0;
+  const warnings: string[] = [];
+  if (ratio >= 0.9) warnings.push('estimated savings >= 90%');
+
   const reportJson = {
-    version: 2,
+    version: 3,
     generated_at: new Date().toISOString(),
+    confidence,
+    warnings,
+    assumptions: {
+      no_double_counting: 'routing -> context -> retry allocation per-event with remaining-cost caps',
+      retry_cost_model: 'total_cost includes retries as extra attempts (base_cost*(1+retries))',
+      context_model: 'top 20% by input_tokens assume 25% input reduction'
+    },
     summary: {
       total_cost_usd: analysis.total_cost,
       estimated_savings_usd: savings.estimated_savings_total,
@@ -224,12 +264,24 @@ export function writeOutputs(outDir: string, analysis: AnalysisJson, savings: Sa
   };
   fs.writeFileSync(path.join(outDir, 'report.json'), JSON.stringify(reportJson, null, 2));
 
-  // report.md: "what to change" guidance (T3 DoD)
+  // report.md: "what to change" guidance + confidence/assumptions (T4 DoD)
+  const ratioMd = analysis.total_cost > 0 ? (savings.estimated_savings_total / analysis.total_cost) : 0;
+  const warningsMd: string[] = [];
+  if (ratioMd >= 0.9) warningsMd.push('WARNING: estimated savings >= 90% — check overlap/missing rate table');
+
   const reportMd = [
     '# AIOpt Report',
     '',
     `- Total cost: $${analysis.total_cost}`,
-    `- Estimated savings: $${savings.estimated_savings_total}`,
+    `- Estimated savings: $${savings.estimated_savings_total} (guarded <= total_cost)`,
+    `- Confidence: ${confidence}`,
+    unknownCount > 0 ? `- Unknown models: ${unknownCount} (estimated pricing used)` : '- Unknown models: 0',
+    ...warningsMd.map(w => `- ${w}`),
+    '',
+    '## ASSUMPTIONS',
+    '- No double-counting: routing → context → retry savings allocated per-event with remaining-cost caps.',
+    '- Retry cost model: total_cost includes retries as extra attempts (base_cost * (1 + retries)).',
+    '- Context savings: top 20% input_tokens events assume 25% input reduction.',
     '',
     '## WHAT TO CHANGE',
     '1) Retry tuning → edit `aiopt/policies/retry.json`',
