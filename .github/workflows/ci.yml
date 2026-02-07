@@ -76,6 +76,9 @@ jobs:
       - name: Guard tests (fixtures)
         run: npm run test:guard
 
+      - name: Quickstart demo (smoke)
+        run: node dist/cli.js quickstart --demo
+
       - name: Guard (blocking example: expect FAIL=3)
         working-directory: .ci-smoke
         shell: bash

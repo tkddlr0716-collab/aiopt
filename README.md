@@ -15,7 +15,14 @@ No server. No upload. No account. No payments inside the CLI.
 ```bash
 npx aiopt install --force
 # baseline: your existing usage log
-npx aiopt guard --context-mult 1.2
+npx aiopt guard --context-mult 1.2 --call-mult 3 --budget-monthly 200
+```
+
+## 1-minute demo
+```bash
+npx aiopt quickstart --demo
+npx aiopt dashboard --port 3010
+# open http://127.0.0.1:3010/
 ```
 
 Exit codes:
