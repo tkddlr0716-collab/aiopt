@@ -118,327 +118,113 @@ npx aiopt scan
   created.push({ path: "aiopt/policies/retry.json", status: p2.wrote ? "created" : "skipped" });
   created.push({ path: "aiopt/policies/output.json", status: p3.wrote ? "created" : "skipped" });
   created.push({ path: "aiopt/policies/context.json", status: p4.wrote ? "created" : "skipped" });
-  const wrapperPath = import_path3.default.join(aioptDir, "aiopt-wrapper.ts");
-  const wrapper = `// AIOpt Wrapper (local guardrail)
-//
-// Goals (MVP):
-// - deterministic (no LLM calls)
-// - local-file based (aiopt/aiopt.config.json + aiopt/policies/*.json)
-// - logs every call to aiopt-output/usage.jsonl (JSONL)
-// - optional routing/caps/retry based on policies
-//
-// Integration idea:
-//   import { aioptWrap } from './aiopt/aiopt-wrapper';
-//   const guarded = aioptWrap(callLLM);
-//   const res = await guarded({ provider:'openai', model:'gpt-5', endpoint:'responses', feature_tag:'summarize', trace_id:'t1', meta:{...}, exec: () => client.responses.create(...) });
+  const wrapperPath = import_path3.default.join(aioptDir, "aiopt-wrapper.js");
+  const wrapper = `// AIOpt Wrapper (guardrails) \u2014 local-only (CommonJS)
 
-import fs from 'fs';
-import path from 'path';
-import crypto from 'crypto';
+const fs = require('fs');
 
-export type AioptConfig = {
-  version: number;
-  installed_at?: string;
-  output_dir: string;
-  usage_path: string;
-  policies_dir: string;
-  rate_table?: { path: string };
-};
+const path = require('path');
 
-export type RoutingPolicy = {
-  version: number;
-  rules: Array<{
-    match: { feature_tag_in?: string[] };
-    action: { tier: 'cheap' | 'default'; reason?: string };
-  }>;
-};
+const crypto = require('crypto');
 
-export type RetryPolicy = {
-  version: number;
-  max_attempts: number;
-  backoff_ms: number[];
-  retry_on_status: Array<'error' | 'timeout'>;
-};
+function readJson(p){ return JSON.parse(fs.readFileSync(p,'utf8')); }
+function ensureDir(p){ fs.mkdirSync(p,{recursive:true}); }
+function appendJsonl(filePath,obj){ ensureDir(path.dirname(filePath)); fs.appendFileSync(filePath, JSON.stringify(obj)+'\\n'); }
+function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
 
-export type OutputPolicy = {
-  version: number;
-  max_output_tokens_default: number;
-  per_feature?: Record<string, number>;
-};
-
-export type ContextPolicy = {
-  version: number;
-  input_token_soft_cap: number;
-  reduce_top_percentile: number;
-  assumed_reduction_ratio: number;
-};
-
-export type UsageLine = {
-  ts: string;
-  request_id: string;
-  trace_id: string;
-  attempt: number;
-  status: 'ok' | 'error' | 'timeout';
-  error_code: string | null;
-  provider: string;
-  model: string;
-  endpoint: string;
-  prompt_tokens: number;
-  completion_tokens: number;
-  total_tokens: number;
-  cost_usd: number;
-  latency_ms: number;
-  meta: Record<string, any>;
-};
-
-export type AioptCallRequest<T> = {
-  provider: string;
-  model: string;
-  endpoint: string;
-  feature_tag?: string;
-  trace_id?: string;
-  request_id?: string;
-  idempotency_key?: string;
-  max_output_tokens?: number;
-  prompt_tokens?: number;
-  completion_tokens?: number;
-  total_tokens?: number;
-  cost_usd?: number;
-  meta?: Record<string, any>;
-  exec: (patched: { model: string; max_output_tokens: number; idempotency_key: string }) => Promise<T>;
-};
-
-export type AioptWrapperOptions = {
-  cwd?: string;
-  configPath?: string;
-  usagePath?: string;
-  cheapModel?: string; // default: gpt-5-mini
-};
-
-function sleep(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-function readJsonSafe<T>(p: string): T | null {
-  try {
-    if (!fs.existsSync(p)) return null;
-    return JSON.parse(fs.readFileSync(p, 'utf8')) as T;
-  } catch {
-    return null;
-  }
-}
-
-function ensureDir(p: string) {
-  fs.mkdirSync(p, { recursive: true });
-}
-
-function resolveFrom(baseDir: string, maybeRel: string) {
-  return path.isAbsolute(maybeRel) ? maybeRel : path.join(baseDir, maybeRel);
-}
-
-function loadConfig(cwd: string, explicitPath?: string): { cfg: AioptConfig; baseDir: string } {
-  const baseDir = cwd;
-  const cfgPath = explicitPath ? resolveFrom(baseDir, explicitPath) : path.join(baseDir, 'aiopt', 'aiopt.config.json');
-  const cfg = readJsonSafe<AioptConfig>(cfgPath) || {
-    version: 1,
-    installed_at: new Date().toISOString(),
-    output_dir: './aiopt-output',
-    usage_path: './aiopt-output/usage.jsonl',
-    policies_dir: './aiopt/policies'
-  };
-  return { cfg, baseDir };
-}
-
-function loadPolicies(baseDir: string, cfg: AioptConfig) {
-  const policiesDir = resolveFrom(baseDir, cfg.policies_dir);
-  const routing = readJsonSafe<RoutingPolicy>(path.join(policiesDir, 'routing.json'));
-  const retry = readJsonSafe<RetryPolicy>(path.join(policiesDir, 'retry.json'));
-  const output = readJsonSafe<OutputPolicy>(path.join(policiesDir, 'output.json'));
-  const context = readJsonSafe<ContextPolicy>(path.join(policiesDir, 'context.json'));
-  return { routing, retry, output, context };
-}
-
-function pickOutputCap(output: OutputPolicy | null, featureTag?: string) {
-  if (!output) return 1024;
-  if (featureTag && output.per_feature && typeof output.per_feature[featureTag] === 'number') return output.per_feature[featureTag];
-  return output.max_output_tokens_default ?? 1024;
-}
-
-function applyRouting(routing: RoutingPolicy | null, featureTag: string | undefined, originalModel: string, cheapModel: string) {
-  if (!routing || !featureTag) return { model: originalModel, routed_from: null as string | null, policy_hits: [] as string[] };
-  for (const rule of routing.rules || []) {
-    const inList = rule.match?.feature_tag_in?.includes(featureTag);
-    if (!inList) continue;
-    if (rule.action?.tier === 'cheap') {
-      if (originalModel !== cheapModel) {
-        return { model: cheapModel, routed_from: originalModel, policy_hits: ['routing:' + featureTag] };
-      }
-    }
-    return { model: originalModel, routed_from: null, policy_hits: ['routing:' + featureTag] };
-  }
-  return { model: originalModel, routed_from: null, policy_hits: [] };
-}
-
-function makeId(prefix: string) {
-  return prefix + '-' + crypto.randomBytes(8).toString('hex');
-}
-
-function classifyError(e: any): { status: 'error' | 'timeout'; code: string } {
-  const msg = String(e?.message || e || 'error');
-  const name = String(e?.name || 'Error');
-  const isTimeout = /timeout|timed out|ETIMEDOUT/i.test(msg) || /timeout/i.test(name);
-  return { status: isTimeout ? 'timeout' : 'error', code: (e?.code ? String(e.code) : isTimeout ? 'TIMEOUT' : 'ERROR') };
-}
-
-function extractObservedUsage(res: any): Partial<Pick<UsageLine, 'prompt_tokens' | 'completion_tokens' | 'total_tokens' | 'cost_usd'>> {
-  // Best-effort extraction for common SDK shapes.
-  // OpenAI-like: { usage: { prompt_tokens, completion_tokens, total_tokens } }
-  // Some wrappers: { cost_usd } or { costUSD } or { cost: { usd } }
-  try {
-    const u = res?.usage;
-    const prompt_tokens = typeof u?.prompt_tokens === 'number' ? u.prompt_tokens : undefined;
-    const completion_tokens = typeof u?.completion_tokens === 'number' ? u.completion_tokens : undefined;
-    const total_tokens = typeof u?.total_tokens === 'number' ? u.total_tokens : undefined;
-
-    const cost_usd =
-      typeof res?.cost_usd === 'number'
-        ? res.cost_usd
-        : typeof res?.costUSD === 'number'
-          ? res.costUSD
-          : typeof res?.cost?.usd === 'number'
-            ? res.cost.usd
-            : undefined;
-
-    return { prompt_tokens, completion_tokens, total_tokens, cost_usd };
-  } catch {
-    return {};
-  }
-}
-
-function appendUsageLine(usagePath: string, line: UsageLine) {
-  ensureDir(path.dirname(usagePath));
-  fs.appendFileSync(usagePath, JSON.stringify(line) + '
-');
-}
-
-export function aioptWrap<T>(fn: (req: AioptCallRequest<T>) => Promise<T>, opts?: AioptWrapperOptions) {
-  const cwd = opts?.cwd || process.cwd();
-  const cheapModel = opts?.cheapModel || 'gpt-5-mini';
-  const { cfg, baseDir } = loadConfig(cwd, opts?.configPath);
-  const policies = loadPolicies(baseDir, cfg);
-
-  const usagePath = opts?.usagePath
-    ? resolveFrom(baseDir, opts.usagePath)
-    : resolveFrom(baseDir, cfg.usage_path);
-
-  return async (req: AioptCallRequest<T>) => {
-    const trace_id = req.trace_id || makeId('trace');
-    const request_id = req.request_id || makeId('req');
-    const idempotency_key = req.idempotency_key || crypto.createHash('sha256').update(trace_id + ':' + request_id).digest('hex');
-
-    const cap = Math.max(1, pickOutputCap(policies.output, req.feature_tag));
-    const desiredMax = typeof req.max_output_tokens === 'number' ? req.max_output_tokens : cap;
-    const max_output_tokens = Math.min(desiredMax, cap);
-
-    const routed = applyRouting(policies.routing, req.feature_tag, req.model, cheapModel);
-
-    const retry = policies.retry;
-    const maxAttempts = Math.max(1, retry?.max_attempts ?? 1);
-    const backoff = retry?.backoff_ms ?? [];
-
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      const t0 = Date.now();
-      try {
-        const res = await fn({
-          ...req,
-          model: routed.model,
-          max_output_tokens,
-          trace_id,
-          request_id,
-          idempotency_key
-        });
-
-        const latency_ms = Date.now() - t0;
-
-        const observed = extractObservedUsage(res as any);
-
-        const prompt_tokens = Number(observed.prompt_tokens ?? req.prompt_tokens ?? 0);
-        const completion_tokens = Number(observed.completion_tokens ?? req.completion_tokens ?? 0);
-        const total_tokens = Number(observed.total_tokens ?? req.total_tokens ?? (prompt_tokens + completion_tokens));
-        const cost_usd = Number(observed.cost_usd ?? req.cost_usd ?? 0);
-
-        appendUsageLine(usagePath, {
-          ts: new Date().toISOString(),
-          request_id,
-          trace_id,
-          attempt,
-          status: 'ok',
-          error_code: null,
-          provider: req.provider,
-          model: routed.model,
-          endpoint: req.endpoint,
-          prompt_tokens,
-          completion_tokens,
-          total_tokens,
-          cost_usd,
-          latency_ms,
-          meta: {
-            ...(req.meta || {}),
-            feature_tag: req.feature_tag || null,
-            routed_from: routed.routed_from,
-            policy_hits: routed.policy_hits,
-            max_output_tokens,
-            idempotency_key
-          }
-        });
-
-        return res;
-      } catch (e) {
-        const latency_ms = Date.now() - t0;
-        const ce = classifyError(e);
-
-        appendUsageLine(usagePath, {
-          ts: new Date().toISOString(),
-          request_id,
-          trace_id,
-          attempt,
-          status: ce.status,
-          error_code: ce.code,
-          provider: req.provider,
-          model: routed.model,
-          endpoint: req.endpoint,
-          prompt_tokens: Number(req.prompt_tokens ?? 0),
-          completion_tokens: Number(req.completion_tokens ?? 0),
-          total_tokens: Number(req.total_tokens ?? 0),
-          cost_usd: Number(req.cost_usd ?? 0),
-          latency_ms,
-          meta: {
-            ...(req.meta || {}),
-            feature_tag: req.feature_tag || null,
-            routed_from: routed.routed_from,
-            policy_hits: routed.policy_hits,
-            max_output_tokens,
-            idempotency_key,
-            error_message: String((e as any)?.message || e)
-          }
-        });
-
-        const shouldRetry = attempt < maxAttempts && (retry?.retry_on_status || []).includes(ce.status);
-        if (!shouldRetry) throw e;
-
-        const waitMs = backoff[Math.min(attempt - 1, backoff.length - 1)] ?? 250;
-        await sleep(waitMs);
-        continue;
-      }
-    }
-
-    // unreachable
-    throw new Error('AIOpt wrapper: exhausted retries');
+function loadConfig(cwd){ return readJson(path.join(cwd,'aiopt','aiopt.config.json')); }
+function loadPolicies(cwd,cfg){ const dir=path.isAbsolute(cfg.policies_dir)?cfg.policies_dir:path.join(cwd,cfg.policies_dir);
+  return {
+    retry: readJson(path.join(dir,'retry.json')) ,
+    output: readJson(path.join(dir,'output.json'))
   };
 }
+function loadRates(cwd,cfg){ const rp=path.isAbsolute(cfg.rate_table.path)?cfg.rate_table.path:path.join(cwd,cfg.rate_table.path); return readJson(rp); }
+
+function costUsd(rt, provider, model, promptTokens, completionTokens){
+  const p=rt.providers && rt.providers[provider];
+  const r=(p && p.models && p.models[model]) || (p && p.default_estimated) || {input:1.0, output:4.0};
+  return (promptTokens/1e6)*r.input + (completionTokens/1e6)*r.output;
+}
+
+function pickRoutedModel(rt, provider, featureTag, currentModel){
+  const cheap=['summarize','classify','translate'];
+  if(!cheap.includes(String(featureTag||'').toLowerCase())) return { model: currentModel, routed_from: null, hit: null };
+  const p=rt.providers && rt.providers[provider];
+  const entries=p && p.models ? Object.entries(p.models) : [];
+  if(!entries.length) return { model: currentModel, routed_from: null, hit: null };
+  const cheapest=entries.map(([name,r])=>({name,score:(r.input+r.output)/2})).sort((a,b)=>a.score-b.score)[0];
+  if(!cheapest || cheapest.name===currentModel) return { model: currentModel, routed_from: null, hit: null };
+  return { model: cheapest.name, routed_from: currentModel, hit: 'routing:cheap-feature' };
+}
+
+function outputCap(outputPolicy, featureTag, requested){
+  const per=(outputPolicy && outputPolicy.per_feature) || {};
+  const cap=per[String(featureTag||'').toLowerCase()] ?? (outputPolicy.max_output_tokens_default || 1024);
+  const req=requested ?? cap;
+  return Math.min(req, cap);
+}
+
+const IDEMPOTENCY=new Map();
+
+/**
+ * guardedCall(cwd, input, fn)
+ * fn(req) must return: { status: 'ok'|'error'|'timeout', completion_tokens: number, error_code?: string }
+ */
+async function guardedCall(cwd, input, fn){
+  const cfg=loadConfig(cwd);
+  const pol=loadPolicies(cwd,cfg);
+  const rt=loadRates(cwd,cfg);
+
+  const request_id=crypto.randomUUID();
+  const trace_id=input.trace_id || request_id;
+  const idem=input.idempotency_key || trace_id;
+  if(IDEMPOTENCY.has(idem)) return IDEMPOTENCY.get(idem);
+
+  const routed=pickRoutedModel(rt, input.provider, input.feature_tag, input.model);
+  const maxOut=outputCap(pol.output, input.feature_tag, input.max_output_tokens);
+  const usagePath=path.isAbsolute(cfg.usage_path)?cfg.usage_path:path.join(cwd,cfg.usage_path);
+
+  const maxAttempts=Math.max(1, Number(pol.retry.max_attempts||1));
+  const backoffs=pol.retry.backoff_ms || [200];
+  const retryOn=new Set(pol.retry.retry_on_status || ['error','timeout']);
+
+  let last={status:'error', completion_tokens:0, error_code:'unknown'};
+
+  for(let attempt=1; attempt<=maxAttempts; attempt++){
+    const t0=Date.now();
+    const policy_hits=[];
+    if(routed.hit) policy_hits.push(routed.hit);
+    policy_hits.push('outputcap:'+maxOut);
+    try{
+      const out=await fn({ provider: input.provider, model: routed.model, endpoint: input.endpoint, max_output_tokens: maxOut, prompt_tokens: input.prompt_tokens, idempotency_key: idem });
+      const latency_ms=Date.now()-t0;
+      const completion_tokens=Number(out.completion_tokens||0);
+      const total_tokens=Number(input.prompt_tokens||0)+completion_tokens;
+      const cost_usd=costUsd(rt, input.provider, routed.model, Number(input.prompt_tokens||0), completion_tokens);
+      appendJsonl(usagePath, { ts:new Date().toISOString(), request_id, trace_id, attempt, status: out.status, error_code: out.status==='ok'?null:String(out.error_code||out.status), provider: input.provider, model: routed.model, endpoint: input.endpoint, prompt_tokens:Number(input.prompt_tokens||0), completion_tokens, total_tokens, cost_usd, latency_ms, meta:{ routed_from: routed.routed_from, policy_hits } });
+      last=out;
+      if(out.status==='ok'){ IDEMPOTENCY.set(idem,out); return out; }
+      if(retryOn.has(out.status) && attempt<maxAttempts){ await sleep(Number(backoffs[Math.min(attempt-1, backoffs.length-1)]||200)); continue; }
+      IDEMPOTENCY.set(idem,out); return out;
+    }catch(e){
+      const latency_ms=Date.now()-t0;
+      const out={ status:'error', completion_tokens:0, error_code:String(e && (e.code||e.name) || 'exception') };
+      appendJsonl(usagePath, { ts:new Date().toISOString(), request_id, trace_id, attempt, status: out.status, error_code: out.error_code, provider: input.provider, model: routed.model, endpoint: input.endpoint, prompt_tokens:Number(input.prompt_tokens||0), completion_tokens:0, total_tokens:Number(input.prompt_tokens||0), cost_usd:costUsd(rt, input.provider, routed.model, Number(input.prompt_tokens||0), 0), latency_ms, meta:{ routed_from: routed.routed_from, policy_hits:[routed.hit||'routing:none','outputcap:'+maxOut,'error:exception'] } });
+      last=out;
+      if(attempt<maxAttempts){ await sleep(Number(backoffs[Math.min(attempt-1, backoffs.length-1)]||200)); continue; }
+      IDEMPOTENCY.set(idem,out); return out;
+    }
+  }
+  IDEMPOTENCY.set(idem,last);
+  return last;
+}
+
+module.exports = { guardedCall };
 `;
+  ;
   const w = writeFile(wrapperPath, wrapper, force);
-  created.push({ path: "aiopt/aiopt-wrapper.ts", status: w.wrote ? "created" : "skipped" });
+  created.push({ path: "aiopt/aiopt-wrapper.js", status: w.wrote ? "created" : "skipped" });
   const usagePath = import_path3.default.join(outDir, "usage.jsonl");
   if (force || !import_fs3.default.existsSync(usagePath)) {
     const header = {
@@ -763,25 +549,7 @@ function round2(n) {
 function writeOutputs(outDir, analysis, savings, policy) {
   import_fs2.default.mkdirSync(outDir, { recursive: true });
   import_fs2.default.writeFileSync(import_path2.default.join(outDir, "analysis.json"), JSON.stringify(analysis, null, 2));
-  const reportJson = {
-    version: 1,
-    generated_at: (/* @__PURE__ */ new Date()).toISOString(),
-    summary: {
-      total_cost_usd: analysis.total_cost,
-      estimated_savings_usd: savings.estimated_savings_total,
-      routing_savings_usd: savings.routing_savings,
-      context_savings_usd: savings.context_savings,
-      retry_waste_usd: savings.retry_waste
-    },
-    top: {
-      by_model: analysis.by_model_top,
-      by_feature: analysis.by_feature_top
-    },
-    unknown_models: analysis.unknown_models,
-    notes: savings.notes
-  };
-  import_fs2.default.writeFileSync(import_path2.default.join(outDir, "report.json"), JSON.stringify(reportJson, null, 2));
-  const reportTxt = [
+  const report = [
     `\uCD1D\uBE44\uC6A9: $${analysis.total_cost}`,
     `\uC808\uAC10 \uAC00\uB2A5 \uAE08\uC561(Estimated): $${savings.estimated_savings_total}`,
     `\uC808\uAC10 \uADFC\uAC70 3\uC904:`,
@@ -790,7 +558,7 @@ function writeOutputs(outDir, analysis, savings, policy) {
     savings.notes[2],
     ""
   ].join("\n");
-  import_fs2.default.writeFileSync(import_path2.default.join(outDir, "report.txt"), reportTxt);
+  import_fs2.default.writeFileSync(import_path2.default.join(outDir, "report.txt"), report);
   import_fs2.default.writeFileSync(import_path2.default.join(outDir, "cost-policy.json"), JSON.stringify(policy, null, 2));
 }
 
