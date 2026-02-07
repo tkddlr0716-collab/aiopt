@@ -851,8 +851,19 @@ __export(guard_exports, {
 function round23(n) {
   return Math.round(n * 100) / 100;
 }
-function monthEstimate(delta) {
-  return delta * 30;
+function monthEstimate(delta, events) {
+  let days = 1;
+  try {
+    const times = events.map((e) => Date.parse(e.ts)).filter((t) => Number.isFinite(t)).sort((a, b) => a - b);
+    if (times.length >= 2) {
+      const spanMs = Math.max(0, times[times.length - 1] - times[0]);
+      const spanDays = spanMs / (1e3 * 60 * 60 * 24);
+      days = Math.max(1, spanDays);
+    }
+  } catch {
+    days = 1;
+  }
+  return delta * 30 / days;
 }
 function applyCandidate(events, cand) {
   const ctxM = cand.contextMultiplier ?? 1;
@@ -875,9 +886,12 @@ function confidenceFromChange(cand) {
   if (cand.model) reasons.push("model change");
   if (cand.provider) reasons.push("provider change");
   if (cand.contextMultiplier && cand.contextMultiplier !== 1) reasons.push("context length change");
+  if (cand.outputMultiplier && cand.outputMultiplier !== 1) reasons.push("output length change");
   if (cand.retriesDelta && cand.retriesDelta !== 0) return { level: "High", reasons };
   if (cand.model || cand.provider) return { level: "Medium", reasons };
-  if (cand.contextMultiplier && cand.contextMultiplier !== 1) return { level: "Low", reasons };
+  if (cand.contextMultiplier && cand.contextMultiplier !== 1 || cand.outputMultiplier && cand.outputMultiplier !== 1) {
+    return { level: "Low", reasons };
+  }
   return { level: "Medium", reasons: reasons.length ? reasons : ["unknown change"] };
 }
 function runGuard(rt, input) {
@@ -892,7 +906,7 @@ function runGuard(rt, input) {
   const candCost = cand.analysis.total_cost;
   const delta = candCost - baseCost;
   const conf = confidenceFromChange(input.candidate);
-  const monthly = monthEstimate(Math.max(0, delta));
+  const monthly = monthEstimate(Math.max(0, delta), baselineEvents);
   const monthlyRounded = round23(monthly);
   let exitCode = 0;
   let headline = "OK: no cost accident risk detected";
@@ -906,7 +920,7 @@ function runGuard(rt, input) {
   const reasons = conf.reasons.length ? conf.reasons.join(", ") : "n/a";
   const msg = [
     headline,
-    `Summary: baseline=$${baseCost} \u2192 candidate=$${candCost} (\u0394=$${round23(delta)})`,
+    `Summary: baseline=$${round23(baseCost)} \u2192 candidate=$${round23(candCost)} (\u0394=$${round23(delta)})`,
     `Impact (monthly est): +$${monthlyRounded}`,
     `Confidence: ${conf.level} (${reasons})`,
     "Recommendation: review model/provider/retry/context changes before deploy."

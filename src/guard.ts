@@ -100,7 +100,7 @@ export function runGuard(rt: RateTable, input: GuardInput): GuardResult {
   // Guard logic:
   // - Warning if delta > 0 and monthEstimate(delta) >= $10
   // - Fail if delta > 0 and monthEstimate(delta) >= $100 (merge-blocking)
-  const monthly = monthEstimate(Math.max(0, delta));
+  const monthly = monthEstimate(Math.max(0, delta), baselineEvents);
   const monthlyRounded = round2(monthly);
 
   let exitCode: 0 | 2 | 3 = 0;
@@ -113,7 +113,7 @@ export function runGuard(rt: RateTable, input: GuardInput): GuardResult {
 
   const msg = [
     headline,
-    `Summary: baseline=$${baseCost} → candidate=$${candCost} (Δ=$${round2(delta)})`,
+    `Summary: baseline=$${round2(baseCost)} → candidate=$${round2(candCost)} (Δ=$${round2(delta)})`,
     `Impact (monthly est): +$${monthlyRounded}`,
     `Confidence: ${conf.level} (${reasons})`,
     'Recommendation: review model/provider/retry/context changes before deploy.'
