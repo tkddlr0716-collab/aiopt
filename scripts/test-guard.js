@@ -26,7 +26,7 @@ function mustContain(out, s) {
 
 // 1) OK case: small baseline, minor change
 {
-  const r = run(['guard', '--input', path.join(__dirname, '..', 'fixtures', 'baseline_small.jsonl'), '--context-mult', '1.05']);
+  const r = run(['guard', '--input', path.join(__dirname, '..', 'fixtures', 'baseline_small.jsonl'), '--context-mult', '1.05', '--call-mult', '1']);
   assert([0,2,3].includes(r.code), 'exit code must be 0/2/3');
   mustContain(r.out, 'Impact (monthly est):');
   mustContain(r.out, 'Accident risk:');
@@ -49,7 +49,14 @@ function mustContain(out, s) {
   mustContain(r.out, 'Confidence: High');
 }
 
-// 4) Baseline empty: must still print Confidence + Accident risk and exit 3
+// 4) WARN/FAIL: traffic spike (call-mult)
+{
+  const r = run(['guard', '--input', path.join(__dirname, '..', 'fixtures', 'baseline_calls.jsonl'), '--call-mult', '50']);
+  assert(r.code === 2 || r.code === 3, 'expected warn/fail for traffic spike');
+  mustContain(r.out, 'Call volume multiplier: x50');
+}
+
+// 5) Baseline empty: must still print Confidence + Accident risk and exit 3
 {
   const r = run(['guard', '--input', path.join(__dirname, '..', 'fixtures', 'baseline_empty.jsonl')]);
   assert(r.code === 3, 'expected exit 3 for empty baseline');

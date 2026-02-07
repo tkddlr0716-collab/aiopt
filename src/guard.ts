@@ -9,6 +9,7 @@ export type GuardInput = {
     contextMultiplier?: number; // multiplies input_tokens
     outputMultiplier?: number;  // multiplies output_tokens
     retriesDelta?: number;      // adds to retries
+    callMultiplier?: number;    // multiplies call volume
   };
 };
 
@@ -109,6 +110,12 @@ export function runGuard(rt: RateTable, input: GuardInput): GuardResult {
   const baseCost = base.analysis.total_cost;
   let candCost = cand.analysis.total_cost;
 
+  // call volume multiplier (traffic spike)
+  const callMult = input.candidate.callMultiplier && input.candidate.callMultiplier > 0 ? input.candidate.callMultiplier : 1;
+  if (callMult !== 1) {
+    candCost = candCost * callMult;
+  }
+
   // attempt-log baseline: retriesDelta should be interpreted as "extra attempts".
   const attemptLog = baselineEvents.some(e => (e.trace_id && String(e.trace_id).length > 0) || (e.attempt !== undefined && Number(e.attempt) > 0));
   if (attemptLog && input.candidate.retriesDelta && input.candidate.retriesDelta > 0) {
@@ -137,11 +144,12 @@ export function runGuard(rt: RateTable, input: GuardInput): GuardResult {
   const msg = [
     headline,
     `Summary: baseline=$${round2(baseCost)} → candidate=$${round2(candCost)} (Δ=$${round2(delta)})`,
+    callMult !== 1 ? `Call volume multiplier: x${callMult}` : null,
     `Impact (monthly est): +$${monthlyRounded}`,
     `Accident risk: ${accidentRiskFromMonthly(monthly)}`,
     `Confidence: ${conf.level} (${reasons})`,
     'Recommendation: review model/provider/retry/context changes before deploy.'
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 
   return { exitCode, message: msg };
 }

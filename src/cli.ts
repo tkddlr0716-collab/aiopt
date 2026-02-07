@@ -137,6 +137,7 @@ program
   .option('--context-mult <n>', 'multiply input_tokens by n', (v) => Number(v))
   .option('--output-mult <n>', 'multiply output_tokens by n', (v) => Number(v))
   .option('--retries-delta <n>', 'add n to retries', (v) => Number(v))
+  .option('--call-mult <n>', 'multiply call volume by n (traffic spike)', (v) => Number(v))
   .action(async (opts) => {
     const rt = loadRateTable();
     const inputPath = String(opts.input);
@@ -154,7 +155,8 @@ program
         model: opts.model,
         contextMultiplier: opts.contextMult,
         outputMultiplier: opts.outputMult,
-        retriesDelta: opts.retriesDelta
+        retriesDelta: opts.retriesDelta,
+        callMultiplier: opts.callMult
       }
     });
 

@@ -919,6 +919,10 @@ function runGuard(rt, input) {
   const cand = analyze(rt, candidateEvents);
   const baseCost = base.analysis.total_cost;
   let candCost = cand.analysis.total_cost;
+  const callMult = input.candidate.callMultiplier && input.candidate.callMultiplier > 0 ? input.candidate.callMultiplier : 1;
+  if (callMult !== 1) {
+    candCost = candCost * callMult;
+  }
   const attemptLog = baselineEvents.some((e) => e.trace_id && String(e.trace_id).length > 0 || e.attempt !== void 0 && Number(e.attempt) > 0);
   if (attemptLog && input.candidate.retriesDelta && input.candidate.retriesDelta > 0) {
     candCost += baseCost * input.candidate.retriesDelta;
@@ -940,11 +944,12 @@ function runGuard(rt, input) {
   const msg = [
     headline,
     `Summary: baseline=$${round23(baseCost)} \u2192 candidate=$${round23(candCost)} (\u0394=$${round23(delta)})`,
+    callMult !== 1 ? `Call volume multiplier: x${callMult}` : null,
     `Impact (monthly est): +$${monthlyRounded}`,
     `Accident risk: ${accidentRiskFromMonthly(monthly)}`,
     `Confidence: ${conf.level} (${reasons})`,
     "Recommendation: review model/provider/retry/context changes before deploy."
-  ].join("\n");
+  ].filter(Boolean).join("\n");
   return { exitCode, message: msg };
 }
 var init_guard = __esm({
@@ -1085,7 +1090,7 @@ program.command("doctor").description("Check installation + print last 5 usage e
     console.log(JSON.stringify(x));
   }
 });
-program.command("guard").description("Pre-deploy guardrail: compare baseline usage vs candidate change and print warnings (exit codes 0/2/3)").option("--input <path>", "baseline usage jsonl/csv (default: ./aiopt-output/usage.jsonl)", DEFAULT_INPUT).option("--provider <provider>", "candidate provider override").option("--model <model>", "candidate model override").option("--context-mult <n>", "multiply input_tokens by n", (v) => Number(v)).option("--output-mult <n>", "multiply output_tokens by n", (v) => Number(v)).option("--retries-delta <n>", "add n to retries", (v) => Number(v)).action(async (opts) => {
+program.command("guard").description("Pre-deploy guardrail: compare baseline usage vs candidate change and print warnings (exit codes 0/2/3)").option("--input <path>", "baseline usage jsonl/csv (default: ./aiopt-output/usage.jsonl)", DEFAULT_INPUT).option("--provider <provider>", "candidate provider override").option("--model <model>", "candidate model override").option("--context-mult <n>", "multiply input_tokens by n", (v) => Number(v)).option("--output-mult <n>", "multiply output_tokens by n", (v) => Number(v)).option("--retries-delta <n>", "add n to retries", (v) => Number(v)).option("--call-mult <n>", "multiply call volume by n (traffic spike)", (v) => Number(v)).action(async (opts) => {
   const rt = loadRateTable();
   const inputPath = String(opts.input);
   if (!import_fs6.default.existsSync(inputPath)) {
@@ -1101,7 +1106,8 @@ program.command("guard").description("Pre-deploy guardrail: compare baseline usa
       model: opts.model,
       contextMultiplier: opts.contextMult,
       outputMultiplier: opts.outputMult,
-      retriesDelta: opts.retriesDelta
+      retriesDelta: opts.retriesDelta,
+      callMultiplier: opts.callMult
     }
   });
   console.log(r.message);

@@ -1,0 +1,3 @@
+{"ts":"2026-02-07T00:00:01Z","provider":"openai","model":"gpt-5-mini","prompt_tokens":20000,"completion_tokens":2000,"endpoint":"responses","attempt":1,"trace_id":"t1","status":"ok","meta":{"feature_tag":"summarize"}}
+{"ts":"2026-02-07T00:00:02Z","provider":"openai","model":"gpt-5-mini","prompt_tokens":20000,"completion_tokens":2000,"endpoint":"responses","attempt":1,"trace_id":"t2","status":"ok","meta":{"feature_tag":"summarize"}}
+{"ts":"2026-02-07T00:00:03Z","provider":"openai","model":"gpt-5-mini","prompt_tokens":20000,"completion_tokens":2000,"endpoint":"responses","attempt":1,"trace_id":"t3","status":"ok","meta":{"feature_tag":"summarize"}}
