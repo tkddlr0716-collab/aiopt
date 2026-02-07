@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>AIOpt — 구매</title>
+  <meta name="description" content="AIOpt Pro/Team 결제 후 오프라인 라이선스 키로 활성화합니다."/>
+  <style>
+    :root{--bg:#070b16;--card:#0b1222;--txt:#e7eaf2;--muted:#a3acc2;--border:rgba(255,255,255,.10);--p1:#a78bfa;--p2:#34d399;--shadow:0 18px 70px rgba(0,0,0,.35)}
+    *{box-sizing:border-box}
+    body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto;background:var(--bg);color:var(--txt)}
+    a{color:#bfffe3;text-decoration:none} a:hover{text-decoration:underline}
+    .wrap{max-width:1000px;margin:0 auto;padding:26px 18px 46px}
+    .nav{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}
+    .brand{display:flex;align-items:center;gap:10px;font-weight:950;letter-spacing:-.02em}
+    .mark{width:12px;height:12px;border-radius:4px;background:linear-gradient(90deg,var(--p1),var(--p2))}
+    .card{background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,0)), var(--card);border:1px solid var(--border);border-radius:18px;padding:18px;box-shadow:var(--shadow)}
+    .pill{display:inline-flex;align-items:center;gap:8px;padding:7px 10px;border-radius:999px;border:1px solid var(--border);background:rgba(255,255,255,.03);color:var(--muted);font-size:12px;line-height:1}
+    .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:14px} @media(max-width:900px){.grid{grid-template-columns:1fr}}
+    .btn{display:inline-flex;align-items:center;justify-content:center;padding:10px 12px;border-radius:14px;border:1px solid var(--border);background:rgba(167,139,250,.14);color:#efe9ff;font-weight:900;min-height:40px;width:100%}
+    .btn.secondary{background:rgba(52,211,153,.12);color:#cffff0}
+    .price{font-size:30px;font-weight:980;margin-top:8px}
+    pre{margin:0;white-space:pre-wrap;word-break:break-word;background:rgba(3,6,14,.65);border:1px solid rgba(255,255,255,.12);padding:12px;border-radius:14px;font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono";font-size:13px;line-height:1.55}
+    .k{padding:2px 6px;border-radius:8px;border:1px solid var(--border);font-family:ui-monospace;font-size:12px;color:#d7def2;background:rgba(255,255,255,.03)}
+    ul{margin:8px 0 0 18px;color:#d2d8e8} li{margin:6px 0;line-height:1.55}
+    .foot{margin-top:12px;color:var(--muted);font-size:12px;line-height:1.6}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="nav">
+      <div class="brand"><span class="mark"></span> AIOpt</div>
+      <div style="display:flex; gap:14px; align-items:center; color:var(--muted); font-size:14px">
+        <a href="./index.html">소개</a>
+        <a href="https://www.npmjs.com/package/aiopt" target="_blank" rel="noreferrer">npm</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="pill">Checkout · Offline License · No product server</div>
+      <div style="height:10px"></div>
+      <div style="font-size:34px;font-weight:980;letter-spacing:-.03em">AIOpt 구매</div>
+      <div style="margin-top:8px;color:var(--muted);line-height:1.7">
+        결제는 Polar(권장)로 받고, 결제 완료 후 <b>서명된 라이선스 키</b>로 로컬에서 활성화합니다.
+      </div>
+
+      <div class="grid">
+        <div class="card" style="background:rgba(255,255,255,.02)">
+          <div class="pill">Free</div>
+          <div class="price">$0</div>
+          <ul>
+            <li>install / guard / scan / dashboard</li>
+            <li>기본 rate table</li>
+          </ul>
+          <div style="height:10px"></div>
+          <a class="btn" href="./index.html">무료로 계속</a>
+        </div>
+        <div class="card" style="background:rgba(167,139,250,.10)">
+          <div class="pill">Pro</div>
+          <div class="price">$19<span style="font-size:14px;color:var(--muted)">/mo</span></div>
+          <ul>
+            <li>강한 Guard rules / policy packs</li>
+            <li>확장 rate table</li>
+          </ul>
+          <div style="height:10px"></div>
+          <a class="btn secondary" href="#" id="proLink">Pro 구매(링크 준비중)</a>
+          <div class="foot">운영자가 Polar Checkout URL을 연결하면 활성화됩니다.</div>
+        </div>
+        <div class="card" style="background:rgba(52,211,153,.08)">
+          <div class="pill">Team</div>
+          <div class="price">$49<span style="font-size:14px;color:var(--muted)">/mo</span></div>
+          <ul>
+            <li>팀용 정책 팩 공유/표준</li>
+            <li>여러 좌석 운영</li>
+          </ul>
+          <div style="height:10px"></div>
+          <a class="btn secondary" href="#" id="teamLink">Team 구매(링크 준비중)</a>
+        </div>
+      </div>
+
+      <div style="height:14px"></div>
+      <div style="font-size:20px;font-weight:900">결제 후 활성화</div>
+      <div style="margin-top:8px;color:var(--muted);line-height:1.7">결제 완료 후 받은 라이선스 키로 아래처럼 활성화합니다.</div>
+      <div style="height:10px"></div>
+      <pre>$ npx aiopt license activate &lt;LICENSE_KEY&gt;
+$ npx aiopt license status
+$ npx aiopt license verify</pre>
+      <div class="foot">키 형식: <span class="k">payload.signature</span> (오프라인 공개키 검증)</div>
+    </div>
+
+    <div class="foot">© 2026 AIOpt. Local-first by design.</div>
+  </div>
+
+  <script>
+    // Static site: inject checkout URLs via query params (optional)
+    // Example: /buy.html?pro=https://...&team=https://...
+    const p = new URLSearchParams(location.search);
+    const pro = p.get('pro');
+    const team = p.get('team');
+    if (pro) document.getElementById('proLink').setAttribute('href', pro);
+    if (team) document.getElementById('teamLink').setAttribute('href', team);
+  </script>
+</body>
+</html>
