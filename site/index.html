@@ -30,6 +30,7 @@
     h2{margin:0 0 10px 0;font-size:18px;letter-spacing:-.01em}
     ul{margin:8px 0 0 18px;color:#d2d8e8} li{margin:6px 0;line-height:1.55}
     .foot{margin-top:12px;color:var(--muted);font-size:12px;line-height:1.6}
+    img.demo{margin-top:12px;border-radius:14px;border:1px solid var(--border);width:100%;height:auto;box-shadow:0 14px 50px rgba(0,0,0,.25)}
   </style>
 </head>
 <body>
@@ -63,6 +64,7 @@
         <pre>$ npx aiopt install --force
 $ npx aiopt guard --context-mult 1.2 --call-mult 10
 $ echo $?   # 0 OK / 2 WARN / 3 FAIL</pre>
+        <img class="demo" src="./assets/demo/quickstart.gif" alt="AIOpt quickstart demo" loading="lazy"/>
         <div class="foot">저장 파일: <span class="k">aiopt-output/guard-last.txt</span>, <span class="k">aiopt-output/guard-last.json</span></div>
       </div>
     </div>
@@ -75,6 +77,7 @@ $ echo $?   # 0 OK / 2 WARN / 3 FAIL</pre>
           <li>WARN/FAIL이면 PR 코멘트 자동 작성</li>
           <li>exit=3을 머지 차단으로 사용</li>
         </ul>
+        <img class="demo" src="./assets/demo/guard.gif" alt="AIOpt guard demo" loading="lazy"/>
       </div>
       <div class="card">
         <h2>로컬 대시보드</h2>
@@ -82,14 +85,16 @@ $ echo $?   # 0 OK / 2 WARN / 3 FAIL</pre>
           <li><span class="k">npx aiopt dashboard --port 3010</span></li>
           <li>127.0.0.1 바인딩(로컬 전용)</li>
         </ul>
+        <img class="demo" src="./assets/demo/dash.gif" alt="AIOpt dashboard demo" loading="lazy"/>
       </div>
       <div class="card">
-        <h2>결제(준비 중)</h2>
+        <h2>SCAN: Top Fix 3</h2>
         <ul>
-          <li>Polar Checkout</li>
-          <li>오프라인 라이선스 키: <span class="k">aiopt license activate</span></li>
+          <li><span class="k">npx aiopt scan</span> → 리포트 + 패치 초안 생성</li>
+          <li>데이터 기반 추천 3개(impact 순)</li>
+          <li>아티팩트: <span class="k">aiopt-output/report.md</span>, <span class="k">report.json</span>, <span class="k">patches/*</span></li>
         </ul>
-        <div class="foot">Checkout 링크는 추후 Polar 상품 URL 확정 후 연결됩니다.</div>
+        <img class="demo" src="./assets/demo/scan.gif" alt="AIOpt scan demo" loading="lazy"/>
       </div>
     </div>
 
