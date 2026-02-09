@@ -2212,6 +2212,58 @@ if(liveEl) liveEl.textContent = 'live: on (polling)';
         res.end("not found");
         return;
       }
+      if (name === "live-60m.json" || name === "usage-summary.json") {
+        const usagePath = file("usage.jsonl");
+        const st = statOrNull(usagePath);
+        if (!st) {
+          res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+          res.end("missing");
+          return;
+        }
+        globalThis.__aioptDashCache = globalThis.__aioptDashCache || {};
+        const cache = globalThis.__aioptDashCache;
+        if (!cache.usage || cache.usage.mtimeMs !== st.mtimeMs) {
+          const txt2 = import_fs11.default.readFileSync(usagePath, "utf8");
+          const now = Date.now();
+          const liveBins = Array.from({ length: 60 }, () => ({ cost: 0, calls: 0 }));
+          const dayBins = Array.from({ length: 7 }, () => ({ cost: 0, calls: 0 }));
+          for (const line of txt2.split(/\r?\n/)) {
+            if (!line.trim()) continue;
+            try {
+              const ev = JSON.parse(line);
+              const t = Date.parse(ev.ts);
+              if (!Number.isFinite(t)) continue;
+              const cost = Number(ev.cost_usd);
+              const c = Number.isFinite(cost) ? cost : 0;
+              const dm = Math.floor((now - t) / 6e4);
+              if (dm >= 0 && dm < 60) {
+                liveBins[dm].calls += 1;
+                liveBins[dm].cost += c;
+              }
+              const dd = Math.floor((now - t) / 864e5);
+              if (dd >= 0 && dd < 7) {
+                dayBins[dd].calls += 1;
+                dayBins[dd].cost += c;
+              }
+            } catch {
+            }
+          }
+          cache.usage = {
+            mtimeMs: st.mtimeMs,
+            live60m: {
+              bins: liveBins,
+              totalCostUsd: Math.round(liveBins.reduce((a, b) => a + b.cost, 0) * 100) / 100
+            },
+            summary7d: {
+              dayBins
+            }
+          };
+        }
+        const body = name === "live-60m.json" ? cache.usage.live60m : cache.usage.summary7d;
+        res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+        res.end(JSON.stringify(body, null, 2));
+        return;
+      }
       const p = file(name);
       const txt = readOrNull(p);
       if (txt === null) {
@@ -2220,7 +2272,7 @@ if(liveEl) liveEl.textContent = 'live: on (polling)';
         return;
       }
       const ct = name.endsWith(".json") ? "application/json; charset=utf-8" : "text/plain; charset=utf-8";
-      res.writeHead(200, { "content-type": ct });
+      res.writeHead(200, { "content-type": ct, "cache-control": "no-store" });
       res.end(txt);
       return;
     }
