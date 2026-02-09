@@ -2116,8 +2116,8 @@ async function load(){
 
   const histTxt = await fetch('/api/guard-history.jsonl', { cache: 'no-store' }).then(r=>r.ok?r.text():null).catch(()=>null);
   if(histTxt){
-    const lines = histTxt.trim().split('
-').filter(Boolean).slice(-15).reverse();
+    const NL = String.fromCharCode(10);
+    const lines = histTxt.trim().split(NL).filter(Boolean).slice(-15).reverse();
     const pretty = [];
     for(const l of lines){
       try{
@@ -2129,8 +2129,7 @@ async function load(){
         pretty.push(badge.padEnd(5) + ' ' + mode.padEnd(9) + ' ' + ts);
       }catch{pretty.push(l)}
     }
-    document.getElementById('guardHist').textContent = pretty.join('
-');
+    document.getElementById('guardHist').textContent = pretty.join(NL);
   } else {
     document.getElementById('guardHist').textContent = '(no guard-history.jsonl yet \u2014 run: aiopt guard)';
   }
@@ -2181,8 +2180,7 @@ async function load(){
       const dollars = ('$' + (Math.round((Number(b.cost)||0)*100)/100).toFixed(2));
       return String(label).padEnd(5) + ' ' + String(dollars).padStart(9) + '  (' + (b.calls||0) + ' calls)';
     });
-    document.getElementById('liveText').textContent = rows.join('
-');
+    document.getElementById('liveText').textContent = rows.join(String.fromCharCode(10));
 
     const liveEl = document.getElementById('live');
     if(liveEl){
@@ -2218,8 +2216,7 @@ async function load(){
       const dollars = ('$' + (Math.round((Number(b.cost)||0)*100)/100).toFixed(2));
       return String(label).padEnd(7) + ' ' + String(dollars).padStart(9) + '  (' + (b.calls||0) + ' calls)';
     });
-    document.getElementById('trend').textContent = rows.join('
-');
+    document.getElementById('trend').textContent = rows.join(String.fromCharCode(10));
   } else {
     document.getElementById('trend').textContent = '(no 7d data yet)';
     document.getElementById('trendSvg').innerHTML = '';
