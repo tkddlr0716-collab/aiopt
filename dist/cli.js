@@ -1837,6 +1837,14 @@ async function startDashboard(cwd, opts) {
       return null;
     }
   }
+  function statOrNull(p) {
+    try {
+      const st = import_fs11.default.statSync(p);
+      return { size: st.size, mtimeMs: st.mtimeMs };
+    } catch {
+      return null;
+    }
+  }
   const indexHtml = `<!doctype html>
 <html lang="en">
 <head>

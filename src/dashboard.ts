@@ -37,6 +37,15 @@ export async function startDashboard(cwd: string, opts: { port: number }) {
     }
   }
 
+  function statOrNull(p: string): null | { size: number; mtimeMs: number } {
+    try {
+      const st = fs.statSync(p);
+      return { size: st.size, mtimeMs: st.mtimeMs };
+    } catch {
+      return null;
+    }
+  }
+
   const indexHtml = `<!doctype html>
 <html lang="en">
 <head>
