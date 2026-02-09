@@ -1,0 +1,56 @@
+name: aiopt
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  scan-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+      - run: npm run build
+
+      # Create a minimal demo usage log so scan always produces artifacts.
+      # (Real users will point scan to their actual usage log.)
+      - name: Seed usage.jsonl (CI demo)
+        run: |
+          node -e "const fs=require('fs');fs.mkdirSync('aiopt-output',{recursive:true});const p='aiopt-output/usage.jsonl';if(!fs.existsSync(p)){fs.writeFileSync(p,'');} if(fs.readFileSync(p,'utf8').trim().length===0){fs.appendFileSync(p, JSON.stringify({ts:new Date().toISOString(),provider:'openai',model:'gpt-5.2',input_tokens:1200,output_tokens:250,feature_tag:'summarize',retries:0,status:'ok'})+'\n'); console.log('seeded',p);} else {console.log('exists',p);}"
+
+      - name: AIOpt scan (artifacts)
+        run: node dist/cli.js scan --input ./aiopt-output/usage.jsonl --out ./aiopt-output
+
+      # Upload artifacts (required by spec). Some may not exist yet (patch/report names will be added in later commits).
+      - name: Upload scan artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: aiopt-artifacts
+          if-no-files-found: warn
+          path: |
+            aiopt-output/report.md
+            aiopt-output/report.json
+            aiopt-output/cost-policy.json
+            aiopt-output/aiopt.sarif
+            aiopt-output/patches/**
+
+      # Optional: publish SARIF to GitHub Code Scanning (creates PR annotations in the "Security" UI).
+      # This is not a server; it's GitHub-native.
+      - name: Upload SARIF (code scanning)
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: aiopt-output/aiopt.sarif
+
+      # Gate will be implemented in a later commit. For now, keep PRs non-blocking.
+      - name: AIOpt gate (placeholder)
+        run: echo "gate will be added in Commit 4"
