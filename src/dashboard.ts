@@ -2,6 +2,9 @@ import http from 'http';
 import fs from 'fs';
 import path from 'path';
 import { collectToUsageJsonl } from './collect';
+import { analyze, writeOutputs } from './scan';
+import { readJsonl, isCsvPath, readCsv } from './io';
+import { runGuard } from './guard';
 
 export async function startDashboard(cwd: string, opts: { port: number }) {
   const host = '127.0.0.1';
@@ -13,6 +16,10 @@ export async function startDashboard(cwd: string, opts: { port: number }) {
   // Auto-collect (best-effort): if usage.jsonl is missing, try to derive it from known local sources.
   let lastCollect: null | { ts: string; outPath: string; sources: any; eventsWritten: number } = null;
   let lastCollectError: null | string = null;
+
+  // Auto-generate (best-effort): if scan/guard outputs are missing, generate them so the dashboard is never empty.
+  let lastAutoGen: null | { ts: string; did: string[] } = null;
+  let lastAutoGenError: null | string = null;
 
   function ensureUsageFile() {
     try {
@@ -26,7 +33,55 @@ export async function startDashboard(cwd: string, opts: { port: number }) {
     }
   }
 
+  function loadRateTable(): any {
+    // dist/cli.js lives under dist; rates/ is at repo root.
+    const p = path.join(__dirname, '..', 'rates', 'rate_table.json');
+    return JSON.parse(fs.readFileSync(p, 'utf8'));
+  }
+
+  function readEvents(usagePath: string): any[] {
+    if (!fs.existsSync(usagePath)) return [];
+    return isCsvPath(usagePath) ? readCsv(usagePath) : readJsonl(usagePath);
+  }
+
+  function ensureScanAndGuard() {
+    // Resource-friendly: only run if outputs are missing.
+    // Never auto-runs network calls; only reads local files and writes local artifacts.
+    const did: string[] = [];
+    try {
+      const usagePath = file('usage.jsonl');
+      const rt = loadRateTable();
+
+      const needScan = !fs.existsSync(file('report.json')) || !fs.existsSync(file('report.md'));
+      if (needScan) {
+        const events = readEvents(usagePath);
+        const { analysis, savings, policy, meta } = analyze(rt, events);
+        policy.generated_from.input = usagePath;
+        writeOutputs(outDir, analysis, savings, policy, { ...meta, cwd, cliVersion: 'dashboard' });
+        did.push('scan');
+      }
+
+      const needGuard = !fs.existsSync(file('guard-last.txt')) || !fs.existsSync(file('guard-last.json'));
+      if (needGuard) {
+        const events = readEvents(usagePath);
+        const r = runGuard(rt, { baselineEvents: events, candidate: {} });
+
+        const ts = new Date().toISOString();
+        fs.writeFileSync(file('guard-last.txt'), r.message);
+        fs.writeFileSync(file('guard-last.json'), JSON.stringify({ ts, exitCode: r.exitCode }, null, 2));
+        fs.appendFileSync(file('guard-history.jsonl'), JSON.stringify({ ts, exitCode: r.exitCode, mode: 'dashboard', baseline: usagePath, candidate: null }) + '\n');
+        did.push('guard');
+      }
+
+      if (did.length) lastAutoGen = { ts: new Date().toISOString(), did };
+      lastAutoGenError = null;
+    } catch (e: any) {
+      lastAutoGenError = String(e?.message || e || 'auto-gen failed');
+    }
+  }
+
   ensureUsageFile();
+  ensureScanAndGuard();
 
   function readOrNull(p: string) {
     try {
@@ -115,7 +170,11 @@ export async function startDashboard(cwd: string, opts: { port: number }) {
         <div class="mini" id="baseDir">base: —</div>
         <div class="mini" id="missingHint" style="margin-top:4px">checking files…</div>
       </div>
-      <div class="pill"><span class="dot"></span> local-only · reads <span class="k">./aiopt-output</span> · <span id="live" class="muted">live: off</span></div>
+      <div class="pill"><span class="dot"></span> local-only · reads <span class="k">./aiopt-output</span> · <span id="live" class="muted">live: off</span>
+        <span class="muted">·</span>
+        <button id="btnRefresh" style="all:unset; cursor:pointer; padding:2px 8px; border:1px solid rgba(255,255,255,.16); border-radius:999px; background:rgba(255,255,255,.04); font-size:12px">Refresh</button>
+        <button id="btnLive" style="all:unset; cursor:pointer; padding:2px 8px; border:1px solid rgba(255,255,255,.16); border-radius:999px; background:rgba(255,255,255,.04); font-size:12px">Live: Off</button>
+      </div>
     </div>
 
     <div class="grid">
@@ -295,7 +354,13 @@ async function load(){
     const total = reportJson.summary && reportJson.summary.total_cost_usd;
     const sav = reportJson.summary && reportJson.summary.estimated_savings_usd;
     document.getElementById('totalCost').textContent = 'total: ' + money(total);
-    document.getElementById('savings').textContent = 'savings: ' + money(sav);
+
+    // UX: if savings is ~0, explicitly say it's normal (not broken).
+    const sNum = Number(sav || 0);
+    const savingsText = (Number.isFinite(sNum) && sNum <= 0.01)
+      ? 'savings: $0 (no obvious waste found)'
+      : ('savings: ' + money(sav));
+    document.getElementById('savings').textContent = savingsText;
     renderBars(document.getElementById('byModel'), reportJson.top && reportJson.top.by_model);
     renderBars(document.getElementById('byFeature'), reportJson.top && reportJson.top.by_feature);
     document.getElementById('scanMeta').textContent = 'confidence=' + (reportJson.confidence || '—') + ' · generated_at=' + (reportJson.generated_at || '—');
@@ -376,11 +441,36 @@ async function load(){
   document.getElementById('scan').textContent = reportMd || '(no report.md yet — run: aiopt scan)';
 }
 
-// Auto-refresh (simple polling): updates the dashboard as files change.
+// Default: no auto-refresh (resource-friendly). User can refresh on demand.
+let liveTimer = null;
+
+function setLive(on){
+  const btn = document.getElementById('btnLive');
+  const liveEl = document.getElementById('live');
+  if(!btn || !liveEl) return;
+
+  if(on){
+    btn.textContent = 'Live: On';
+    liveEl.textContent = 'live: on';
+    if(liveTimer) clearInterval(liveTimer);
+    liveTimer = setInterval(()=>{ load(); }, 5000);
+  } else {
+    btn.textContent = 'Live: Off';
+    liveEl.textContent = 'live: off';
+    if(liveTimer) clearInterval(liveTimer);
+    liveTimer = null;
+  }
+}
+
+document.getElementById('btnRefresh')?.addEventListener('click', ()=>{ load(); });
+document.getElementById('btnLive')?.addEventListener('click', ()=>{
+  const on = !liveTimer;
+  setLive(on);
+  load();
+});
+
+setLive(false);
 load();
-setInterval(()=>{ load(); }, 2000);
-const liveEl = document.getElementById('live');
-if(liveEl) liveEl.textContent = 'live: on (polling)';
 </script>
 </body>
 </html>`;
@@ -398,10 +488,11 @@ if(liveEl) liveEl.textContent = 'live: on (polling)';
 
       if (name === '_meta') {
         ensureUsageFile();
+        ensureScanAndGuard();
         const expected = ['guard-last.txt', 'guard-last.json', 'report.json', 'report.md', 'usage.jsonl', 'guard-history.jsonl'];
         const missing = expected.filter(f => !fs.existsSync(file(f)));
         res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
-        res.end(JSON.stringify({ baseDir: cwd, outDir, missing, collect: lastCollect, collectError: lastCollectError }, null, 2));
+        res.end(JSON.stringify({ baseDir: cwd, outDir, missing, collect: lastCollect, collectError: lastCollectError, autoGen: lastAutoGen, autoGenError: lastAutoGenError }, null, 2));
         return;
       }
 
@@ -414,6 +505,8 @@ if(liveEl) liveEl.textContent = 'live: on (polling)';
       ]);
       // auto-collect hook for anything that depends on usage
       if (name === 'usage.jsonl' || name === 'usage-summary.json' || name === 'live-60m.json') ensureUsageFile();
+      // auto-generate scan/guard so the dashboard is never empty
+      if (name === 'report.json' || name === 'report.md' || name === 'guard-last.txt' || name === 'guard-last.json' || name === 'guard-history.jsonl') ensureScanAndGuard();
       if (!allow.has(name)) {
         res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
         res.end('not found');

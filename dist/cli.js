@@ -1817,6 +1817,8 @@ async function startDashboard(cwd, opts) {
   const file = (name) => import_path12.default.join(outDir, name);
   let lastCollect = null;
   let lastCollectError = null;
+  let lastAutoGen = null;
+  let lastAutoGenError = null;
   function ensureUsageFile() {
     try {
       const usagePath = file("usage.jsonl");
@@ -1828,7 +1830,45 @@ async function startDashboard(cwd, opts) {
       lastCollectError = String(e?.message || e || "collect failed");
     }
   }
+  function loadRateTable2() {
+    const p = import_path12.default.join(__dirname, "..", "rates", "rate_table.json");
+    return JSON.parse(import_fs11.default.readFileSync(p, "utf8"));
+  }
+  function readEvents(usagePath) {
+    if (!import_fs11.default.existsSync(usagePath)) return [];
+    return isCsvPath(usagePath) ? readCsv(usagePath) : readJsonl(usagePath);
+  }
+  function ensureScanAndGuard() {
+    const did = [];
+    try {
+      const usagePath = file("usage.jsonl");
+      const rt = loadRateTable2();
+      const needScan = !import_fs11.default.existsSync(file("report.json")) || !import_fs11.default.existsSync(file("report.md"));
+      if (needScan) {
+        const events = readEvents(usagePath);
+        const { analysis, savings, policy, meta } = analyze(rt, events);
+        policy.generated_from.input = usagePath;
+        writeOutputs(outDir, analysis, savings, policy, { ...meta, cwd, cliVersion: "dashboard" });
+        did.push("scan");
+      }
+      const needGuard = !import_fs11.default.existsSync(file("guard-last.txt")) || !import_fs11.default.existsSync(file("guard-last.json"));
+      if (needGuard) {
+        const events = readEvents(usagePath);
+        const r = runGuard(rt, { baselineEvents: events, candidate: {} });
+        const ts = (/* @__PURE__ */ new Date()).toISOString();
+        import_fs11.default.writeFileSync(file("guard-last.txt"), r.message);
+        import_fs11.default.writeFileSync(file("guard-last.json"), JSON.stringify({ ts, exitCode: r.exitCode }, null, 2));
+        import_fs11.default.appendFileSync(file("guard-history.jsonl"), JSON.stringify({ ts, exitCode: r.exitCode, mode: "dashboard", baseline: usagePath, candidate: null }) + "\n");
+        did.push("guard");
+      }
+      if (did.length) lastAutoGen = { ts: (/* @__PURE__ */ new Date()).toISOString(), did };
+      lastAutoGenError = null;
+    } catch (e) {
+      lastAutoGenError = String(e?.message || e || "auto-gen failed");
+    }
+  }
   ensureUsageFile();
+  ensureScanAndGuard();
   function readOrNull(p) {
     try {
       if (!import_fs11.default.existsSync(p)) return null;
@@ -1914,7 +1954,11 @@ async function startDashboard(cwd, opts) {
         <div class="mini" id="baseDir">base: \u2014</div>
         <div class="mini" id="missingHint" style="margin-top:4px">checking files\u2026</div>
       </div>
-      <div class="pill"><span class="dot"></span> local-only \xB7 reads <span class="k">./aiopt-output</span> \xB7 <span id="live" class="muted">live: off</span></div>
+      <div class="pill"><span class="dot"></span> local-only \xB7 reads <span class="k">./aiopt-output</span> \xB7 <span id="live" class="muted">live: off</span>
+        <span class="muted">\xB7</span>
+        <button id="btnRefresh" style="all:unset; cursor:pointer; padding:2px 8px; border:1px solid rgba(255,255,255,.16); border-radius:999px; background:rgba(255,255,255,.04); font-size:12px">Refresh</button>
+        <button id="btnLive" style="all:unset; cursor:pointer; padding:2px 8px; border:1px solid rgba(255,255,255,.16); border-radius:999px; background:rgba(255,255,255,.04); font-size:12px">Live: Off</button>
+      </div>
     </div>
 
     <div class="grid">
@@ -2096,7 +2140,13 @@ async function load(){
     const total = reportJson.summary && reportJson.summary.total_cost_usd;
     const sav = reportJson.summary && reportJson.summary.estimated_savings_usd;
     document.getElementById('totalCost').textContent = 'total: ' + money(total);
-    document.getElementById('savings').textContent = 'savings: ' + money(sav);
+
+    // UX: if savings is ~0, explicitly say it's normal (not broken).
+    const sNum = Number(sav || 0);
+    const savingsText = (Number.isFinite(sNum) && sNum <= 0.01)
+      ? 'savings: $0 (no obvious waste found)'
+      : ('savings: ' + money(sav));
+    document.getElementById('savings').textContent = savingsText;
     renderBars(document.getElementById('byModel'), reportJson.top && reportJson.top.by_model);
     renderBars(document.getElementById('byFeature'), reportJson.top && reportJson.top.by_feature);
     document.getElementById('scanMeta').textContent = 'confidence=' + (reportJson.confidence || '\u2014') + ' \xB7 generated_at=' + (reportJson.generated_at || '\u2014');
@@ -2179,11 +2229,36 @@ async function load(){
   document.getElementById('scan').textContent = reportMd || '(no report.md yet \u2014 run: aiopt scan)';
 }
 
-// Auto-refresh (simple polling): updates the dashboard as files change.
+// Default: no auto-refresh (resource-friendly). User can refresh on demand.
+let liveTimer = null;
+
+function setLive(on){
+  const btn = document.getElementById('btnLive');
+  const liveEl = document.getElementById('live');
+  if(!btn || !liveEl) return;
+
+  if(on){
+    btn.textContent = 'Live: On';
+    liveEl.textContent = 'live: on';
+    if(liveTimer) clearInterval(liveTimer);
+    liveTimer = setInterval(()=>{ load(); }, 5000);
+  } else {
+    btn.textContent = 'Live: Off';
+    liveEl.textContent = 'live: off';
+    if(liveTimer) clearInterval(liveTimer);
+    liveTimer = null;
+  }
+}
+
+document.getElementById('btnRefresh')?.addEventListener('click', ()=>{ load(); });
+document.getElementById('btnLive')?.addEventListener('click', ()=>{
+  const on = !liveTimer;
+  setLive(on);
+  load();
+});
+
+setLive(false);
 load();
-setInterval(()=>{ load(); }, 2000);
-const liveEl = document.getElementById('live');
-if(liveEl) liveEl.textContent = 'live: on (polling)';
 </script>
 </body>
 </html>`;
@@ -2198,10 +2273,11 @@ if(liveEl) liveEl.textContent = 'live: on (polling)';
       const name = url.replace("/api/", "");
       if (name === "_meta") {
         ensureUsageFile();
+        ensureScanAndGuard();
         const expected = ["guard-last.txt", "guard-last.json", "report.json", "report.md", "usage.jsonl", "guard-history.jsonl"];
         const missing = expected.filter((f) => !import_fs11.default.existsSync(file(f)));
         res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
-        res.end(JSON.stringify({ baseDir: cwd, outDir, missing, collect: lastCollect, collectError: lastCollectError }, null, 2));
+        res.end(JSON.stringify({ baseDir: cwd, outDir, missing, collect: lastCollect, collectError: lastCollectError, autoGen: lastAutoGen, autoGenError: lastAutoGenError }, null, 2));
         return;
       }
       const allow = /* @__PURE__ */ new Set([
@@ -2215,6 +2291,7 @@ if(liveEl) liveEl.textContent = 'live: on (polling)';
         "live-60m.json"
       ]);
       if (name === "usage.jsonl" || name === "usage-summary.json" || name === "live-60m.json") ensureUsageFile();
+      if (name === "report.json" || name === "report.md" || name === "guard-last.txt" || name === "guard-last.json" || name === "guard-history.jsonl") ensureScanAndGuard();
       if (!allow.has(name)) {
         res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
         res.end("not found");
@@ -2304,6 +2381,9 @@ var init_dashboard = __esm({
     import_fs11 = __toESM(require("fs"));
     import_path12 = __toESM(require("path"));
     init_collect();
+    init_scan();
+    init_io();
+    init_guard();
   }
 });
 
