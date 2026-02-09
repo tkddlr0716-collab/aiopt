@@ -31,9 +31,13 @@ Goal: prove that AIOpt can produce PR line annotations using SARIF.
    - `pr-annotation-demo.js:4` (expensive model)
    - `pr-annotation-demo.js:4` (high retries)
 
-## Current status
-At time of writing, the workflow runs were observed in **queued** status for several minutes.
-If GitHub Actions is paused/disabled for the repo/account, SARIF annotations will not appear until runners are available.
+## Current status (updated)
+- GitHub Actions runner queue eventually cleared and the PR workflow executed.
+- The workflow log shows SARIF upload succeeded:
+  - "Successfully uploaded results"
+  - "Analysis upload status is complete"
+
+Log source: `gh run view 21828438963 --log`.
 
 ## Local proof (deterministic)
 You can reproduce SARIF generation locally:
