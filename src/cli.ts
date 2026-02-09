@@ -195,6 +195,34 @@ licenseCmd
 
 // vNext: guardrail mode (pre-deploy warning)
 program
+  .command('gate')
+  .description('Merge gate (CI-friendly): fail (exit 1) when policy violations are detected; prints <=10 lines')
+  .option('--input <path>', 'input usage jsonl/csv (default: ./aiopt-output/usage.jsonl)', DEFAULT_INPUT)
+  .option('--out <dir>', 'output dir (default: ./aiopt-output)', DEFAULT_OUTPUT_DIR)
+  .action(async (opts) => {
+    const inputPath = String(opts.input);
+    const outDir = String(opts.out);
+
+    // Ensure scan artifacts exist (report + sarif). Keep deterministic, no network.
+    if (!fs.existsSync(inputPath)) {
+      console.error(`FAIL: input not found: ${inputPath}`);
+      process.exit(1);
+    }
+
+    const rt = loadRateTable();
+    const events = isCsvPath(inputPath) ? readCsv(inputPath) : readJsonl(inputPath);
+    const { analysis, savings, policy, meta } = analyze(rt, events);
+    policy.generated_from.input = inputPath;
+    writeOutputs(outDir, analysis, savings, policy, { ...meta, cwd: process.cwd(), cliVersion: program.version() });
+
+    const { runGate, formatGateStdout } = await import('./gate');
+    const r = runGate(outDir, process.cwd());
+    const out = formatGateStdout(r, outDir);
+    console.log(out.text);
+    process.exit(out.exitCode);
+  });
+
+program
   .command('guard')
   .description('Pre-deploy guardrail: compare baseline usage vs candidate change (or diff two log sets) and print warnings (exit codes 0/2/3)')
   .option('--input <path>', 'baseline usage jsonl/csv (legacy alias for --baseline; default: ./aiopt-output/usage.jsonl)', DEFAULT_INPUT)
