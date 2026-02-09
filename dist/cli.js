@@ -656,7 +656,7 @@ var require_package = __commonJS({
   "package.json"(exports2, module2) {
     module2.exports = {
       name: "aiopt",
-      version: "0.3.4",
+      version: "0.3.5",
       description: "Pre-deploy LLM cost accident guardrail (serverless local CLI)",
       bin: {
         aiopt: "dist/cli.js"
@@ -2075,7 +2075,7 @@ async function load(){
   const timer = setTimeout(()=>{
     const el = document.getElementById('missingHint');
     if(el && el.textContent && el.textContent.includes('checking')){
-      el.textContent = 'still loading\u2026 (if this doesn't change, refresh. If it persists: run aiopt quickstart --demo or aiopt scan)';
+      el.textContent = 'still loading\u2026 (if this does not change, refresh. If it persists: run aiopt quickstart --demo or aiopt scan)';
     }
   }, 1500);
 

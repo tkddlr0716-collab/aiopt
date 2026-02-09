@@ -291,7 +291,7 @@ async function load(){
   const timer = setTimeout(()=>{
     const el = document.getElementById('missingHint');
     if(el && el.textContent && el.textContent.includes('checking')){
-      el.textContent = 'still loading… (if this doesn\'t change, refresh. If it persists: run aiopt quickstart --demo or aiopt scan)';
+      el.textContent = 'still loading… (if this does not change, refresh. If it persists: run aiopt quickstart --demo or aiopt scan)';
     }
   }, 1500);
 
