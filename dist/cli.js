@@ -1751,6 +1751,7 @@ async function startDashboard(cwd, opts) {
       <div>
         <div class="h1">AIOpt Local Dashboard</div>
         <div class="mini" id="baseDir">base: \u2014</div>
+        <div class="mini" id="missingHint" style="margin-top:4px">checking files\u2026</div>
       </div>
       <div class="pill"><span class="dot"></span> local-only \xB7 reads <span class="k">./aiopt-output</span></div>
     </div>
@@ -1764,7 +1765,7 @@ async function startDashboard(cwd, opts) {
         <div style="height:8px"></div>
         <div id="guardBadge" class="badge"><span class="b"></span><span id="guardBadgeText">loading\u2026</span></div>
         <div style="height:10px"></div>
-        <pre id="guard">loading\u2026</pre>
+        <pre id="guard">loading\u2026 (if this stays, it usually means required files are missing \u2014 see the top \u201Cmissing\u201D line)</pre>
         <div style="height:10px"></div>
         <div class="row">
           <a href="/api/guard-last.txt" target="_blank">raw txt</a>
@@ -1777,6 +1778,14 @@ async function startDashboard(cwd, opts) {
         <div style="height:12px"></div>
         <div style="font-weight:900">Recent guard runs</div>
         <pre id="guardHist" style="max-height:220px; overflow:auto">loading\u2026</pre>
+        <div class="mini" style="margin-top:8px">
+          Quick actions (copy/paste):
+          <div style="margin-top:6px; display:flex; flex-wrap:wrap; gap:8px">
+            <span class="k">aiopt quickstart --demo</span>
+            <span class="k">aiopt guard --help</span>
+            <span class="k">aiopt scan</span>
+          </div>
+        </div>
       </div>
 
       <div class="card c6">
@@ -1845,18 +1854,36 @@ function renderBars(el, items){
 }
 
 async function load(){
-  const meta = await fetch('/api/_meta').then(r=>r.ok?r.json():null);
+  // If fetch hangs / fails, do not leave \u201Cloading\u2026\u201D forever.
+  const timer = setTimeout(()=>{
+    const el = document.getElementById('missingHint');
+    if(el && el.textContent && el.textContent.includes('checking')){
+      el.textContent = 'still loading\u2026 (if this doesn't change, refresh. If it persists: run aiopt quickstart --demo or aiopt scan)';
+    }
+  }, 1500);
+
+  let meta = null;
+  try{
+    meta = await fetch('/api/_meta').then(r=>r.ok?r.json():null);
+  }catch{}
+  clearTimeout(timer);
+
   if(meta && meta.baseDir){
     document.getElementById('baseDir').textContent = 'base: ' + meta.baseDir;
   }
-  if(meta && meta.missing && meta.missing.length){
-    // show missing files hint in the guard panel if nothing else yet
-    // (prevents users from thinking it is stuck on loading)
-    document.getElementById('guard').textContent = '(missing: ' + meta.missing.join(', ') + ')';
+
+  const miss = (meta && meta.missing) ? meta.missing : null;
+  const hint = document.getElementById('missingHint');
+  if(miss && miss.length){
+    hint.textContent = 'missing: ' + miss.join(', ') + '  \u2192 not broken. Run: aiopt quickstart --demo (or aiopt scan)';
+  } else if(miss && miss.length===0){
+    hint.textContent = 'missing: (none)';
+  } else {
+    hint.textContent = 'missing: (unknown \u2014 failed to load /api/_meta)';
   }
 
-  const guardTxt = await fetch('/api/guard-last.txt').then(r=>r.ok?r.text():null);
-  const guardMeta = await fetch('/api/guard-last.json').then(r=>r.ok?r.json():null);
+  const guardTxt = await fetch('/api/guard-last.txt').then(r=>r.ok?r.text():null).catch(()=>null);
+  const guardMeta = await fetch('/api/guard-last.json').then(r=>r.ok?r.json():null).catch(()=>null);
 
   document.getElementById('guard').textContent = guardTxt || '(no guard-last.txt yet \u2014 run: aiopt guard)';
   if(guardMeta){
@@ -1870,7 +1897,7 @@ async function load(){
     else {badge.classList.add('fail'); t.textContent='FAIL (3)';}
   }
 
-  const histTxt = await fetch('/api/guard-history.jsonl').then(r=>r.ok?r.text():null);
+  const histTxt = await fetch('/api/guard-history.jsonl').then(r=>r.ok?r.text():null).catch(()=>null);
   if(histTxt){
     const lines = histTxt.trim().split('
 ').filter(Boolean).slice(-15).reverse();
@@ -1891,7 +1918,7 @@ async function load(){
     document.getElementById('guardHist').textContent = '(no guard-history.jsonl yet \u2014 run: aiopt guard)';
   }
 
-  const reportJson = await fetch('/api/report.json').then(r=>r.ok?r.json():null);
+  const reportJson = await fetch('/api/report.json').then(r=>r.ok?r.json():null).catch(()=>null);
   if(reportJson){
     const total = reportJson.summary && reportJson.summary.total_cost_usd;
     const sav = reportJson.summary && reportJson.summary.estimated_savings_usd;
@@ -1904,7 +1931,7 @@ async function load(){
     document.getElementById('scanMeta').textContent = '(no report.json yet \u2014 run: aiopt scan)';
   }
 
-  const usageTxt = await fetch('/api/usage.jsonl').then(r=>r.ok?r.text():null);
+  const usageTxt = await fetch('/api/usage.jsonl').then(r=>r.ok?r.text():null).catch(()=>null);
   if(usageTxt){
     // 7d cost trend: sum(cost_usd) per day from usage.jsonl (ev.ts).
     const now = Date.now();
@@ -1958,7 +1985,7 @@ async function load(){
     document.getElementById('trendSvg').innerHTML = '';
   }
 
-  const reportMd = await fetch('/api/report.md').then(r=>r.ok?r.text():null);
+  const reportMd = await fetch('/api/report.md').then(r=>r.ok?r.text():null).catch(()=>null);
   document.getElementById('scan').textContent = reportMd || '(no report.md yet \u2014 run: aiopt scan)';
 }
 load();
