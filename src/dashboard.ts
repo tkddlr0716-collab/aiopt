@@ -9,6 +9,20 @@ export async function startDashboard(cwd: string, opts: { port: number }) {
   const outDir = path.join(cwd, 'aiopt-output');
   const file = (name: string) => path.join(outDir, name);
 
+  // Auto-collect (best-effort): if usage.jsonl is missing, try to derive it from known local sources.
+  function ensureUsageFile() {
+    try {
+      const usagePath = file('usage.jsonl');
+      if (fs.existsSync(usagePath)) return;
+      const { collectToUsageJsonl } = require('./collect');
+      collectToUsageJsonl(usagePath);
+    } catch {
+      // ignore
+    }
+  }
+
+  ensureUsageFile();
+
   function readOrNull(p: string) {
     try {
       if (!fs.existsSync(p)) return null;
@@ -407,6 +421,7 @@ if(liveEl) liveEl.textContent = 'live: on (polling)';
       const name = url.replace('/api/', '');
 
       if (name === '_meta') {
+        ensureUsageFile();
         const expected = ['guard-last.txt', 'guard-last.json', 'report.json', 'report.md', 'usage.jsonl', 'guard-history.jsonl'];
         const missing = expected.filter(f => !fs.existsSync(file(f)));
         res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
@@ -415,6 +430,7 @@ if(liveEl) liveEl.textContent = 'live: on (polling)';
       }
 
       const allow = new Set(['guard-last.txt', 'guard-last.json', 'guard-history.jsonl', 'report.md', 'report.json', 'usage.jsonl']);
+      if (name === 'usage.jsonl') ensureUsageFile();
       if (!allow.has(name)) {
         res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
         res.end('not found');
