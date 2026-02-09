@@ -6,6 +6,7 @@ import { Command } from 'commander';
 import { ensureDir, isCsvPath, readCsv, readJsonl } from './io';
 import { RateTable } from './types';
 import { analyze, writeOutputs } from './scan';
+import { resolveUsagePath } from './usage-path';
 
 const program = new Command();
 
@@ -223,12 +224,43 @@ program
   .option('--out <dir>', 'output dir (default: ./aiopt-output)', DEFAULT_OUTPUT_DIR)
   .option('--json', 'print machine-readable JSON to stdout')
   .action(async (opts) => {
-    const inputPath = String(opts.input);
+    const preferredInput = String(opts.input);
     const outDir = String(opts.out);
+
+    // Resolve input path in a user-friendly way (works from anywhere).
+    const resolved = resolveUsagePath(preferredInput);
+    const inputPath = resolved.path;
+
+    // If user runs from a protected directory (e.g. /mnt/c/WINDOWS/System32), writing ./aiopt-output fails.
+    // When outDir is default, prefer a safe global location.
+    const defaultOut = './aiopt-output';
+    let finalOutDir = outDir;
+    if (outDir === defaultOut) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const os = require('os');
+        finalOutDir = path.join(os.homedir(), '.aiopt', 'aiopt-output');
+      } catch {
+        finalOutDir = outDir;
+      }
+    }
 
     // Ensure scan artifacts exist (report + sarif). Keep deterministic, no network.
     if (!fs.existsSync(inputPath)) {
-      console.error(`FAIL: input not found: ${inputPath}`);
+      if (opts.json) {
+        console.log(JSON.stringify({
+          ok: false,
+          exitCode: 1,
+          error: 'input_not_found',
+          message: `FAIL: input not found: ${preferredInput}`,
+          tried: resolved.tried,
+          hint: 'Run: aiopt dashboard (auto-collects OpenClaw usage) or pass --input <usage.jsonl>'
+        }, null, 2));
+      } else {
+        console.error(`FAIL: input not found: ${preferredInput}`);
+        console.error(`Tried: ${resolved.tried.join(', ')}`);
+        console.error('Hint: run `aiopt dashboard` first (auto-collects OpenClaw usage)');
+      }
       process.exit(1);
     }
 
@@ -236,10 +268,10 @@ program
     const events = isCsvPath(inputPath) ? readCsv(inputPath) : readJsonl(inputPath);
     const { analysis, savings, policy, meta } = analyze(rt, events);
     policy.generated_from.input = inputPath;
-    writeOutputs(outDir, analysis, savings, policy, { ...meta, cwd: process.cwd(), cliVersion: program.version() });
+    writeOutputs(finalOutDir, analysis, savings, policy, { ...meta, cwd: process.cwd(), cliVersion: program.version() });
 
     const { runGate, formatGateStdout } = await import('./gate');
-    const r = runGate(outDir, process.cwd());
+    const r = runGate(finalOutDir, process.cwd());
 
     if (opts.json) {
       const payload = {
@@ -248,16 +280,16 @@ program
         violations: r.violations,
         top3: r.top3,
         artifacts: {
-          report_md: path.join(outDir, 'report.md'),
-          sarif: path.join(outDir, 'aiopt.sarif'),
-          patches_dir: path.join(outDir, 'patches')
+          report_md: path.join(finalOutDir, 'report.md'),
+          sarif: path.join(finalOutDir, 'aiopt.sarif'),
+          patches_dir: path.join(finalOutDir, 'patches')
         }
       };
       console.log(JSON.stringify(payload, null, 2));
       process.exit(payload.exitCode);
     }
 
-    const out = formatGateStdout(r, outDir);
+    const out = formatGateStdout(r, finalOutDir);
     console.log(out.text);
     process.exit(out.exitCode);
   });

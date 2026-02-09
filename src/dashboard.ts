@@ -174,6 +174,8 @@ export async function startDashboard(cwd: string, opts: { port: number }) {
         <span class="muted">·</span>
         <button id="btnRefresh" style="all:unset; cursor:pointer; padding:2px 8px; border:1px solid rgba(255,255,255,.16); border-radius:999px; background:rgba(255,255,255,.04); font-size:12px">Refresh</button>
         <button id="btnLive" style="all:unset; cursor:pointer; padding:2px 8px; border:1px solid rgba(255,255,255,.16); border-radius:999px; background:rgba(255,255,255,.04); font-size:12px">Live: Off</button>
+        <span class="muted">·</span>
+        <a href="https://github.com/tkddlr0716-collab/aiopt/issues/new?template=dashboard_feedback.yml" target="_blank">Feedback</a>
       </div>
     </div>
 
