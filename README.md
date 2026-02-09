@@ -5,8 +5,7 @@
 [![license](https://img.shields.io/npm/l/aiopt)](./LICENSE)
 
 Links:
-- Landing: https://tkddlr0716-collab.github.io/aiopt/
-- Buy: https://tkddlr0716-collab.github.io/aiopt/buy.html
+- Project page: https://tkddlr0716-collab.github.io/aiopt/
 - Docs: ./docs/
 
 AIOpt is a **pre-deploy cost accident guardrail** for LLM changes.
