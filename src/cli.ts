@@ -49,6 +49,7 @@ program
   .description('입력 로그(JSONL/CSV)를 분석하고 report.md/report.json + patches까지 생성')
   .option('--input <path>', 'input file path (default: ./aiopt-output/usage.jsonl)', DEFAULT_INPUT)
   .option('--out <dir>', 'output dir (default: ./aiopt-output)', DEFAULT_OUTPUT_DIR)
+  .option('--json', 'print machine-readable JSON to stdout')
   .action(async (opts) => {
     const inputPath = String(opts.input);
     const outDir = String(opts.out);
@@ -71,6 +72,27 @@ program
     // Console: Top Fix 3 (data-driven)
     const { buildTopFixes } = await import('./solutions');
     const fixes = buildTopFixes(analysis, savings).slice(0, 3);
+
+    if (opts.json) {
+      const payload = {
+        ok: true,
+        outDir,
+        input: inputPath,
+        report: {
+          report_md: path.join(outDir, 'report.md'),
+          report_json: path.join(outDir, 'report.json'),
+          cost_policy_json: path.join(outDir, 'cost-policy.json'),
+          sarif: path.join(outDir, 'aiopt.sarif')
+        },
+        summary: {
+          total_cost_usd: analysis.total_cost,
+          estimated_savings_usd: savings.estimated_savings_total,
+          confidence: meta?.mode || null
+        }
+      };
+      console.log(JSON.stringify(payload, null, 2));
+      return;
+    }
 
     console.log('Top Fix 3:');
     fixes.forEach((f, i) => {
@@ -199,6 +221,7 @@ program
   .description('Merge gate (CI-friendly): fail (exit 1) when policy violations are detected; prints <=10 lines')
   .option('--input <path>', 'input usage jsonl/csv (default: ./aiopt-output/usage.jsonl)', DEFAULT_INPUT)
   .option('--out <dir>', 'output dir (default: ./aiopt-output)', DEFAULT_OUTPUT_DIR)
+  .option('--json', 'print machine-readable JSON to stdout')
   .action(async (opts) => {
     const inputPath = String(opts.input);
     const outDir = String(opts.out);
@@ -217,6 +240,23 @@ program
 
     const { runGate, formatGateStdout } = await import('./gate');
     const r = runGate(outDir, process.cwd());
+
+    if (opts.json) {
+      const payload = {
+        ok: r.violations <= 0,
+        exitCode: r.violations <= 0 ? 0 : 1,
+        violations: r.violations,
+        top3: r.top3,
+        artifacts: {
+          report_md: path.join(outDir, 'report.md'),
+          sarif: path.join(outDir, 'aiopt.sarif'),
+          patches_dir: path.join(outDir, 'patches')
+        }
+      };
+      console.log(JSON.stringify(payload, null, 2));
+      process.exit(payload.exitCode);
+    }
+
     const out = formatGateStdout(r, outDir);
     console.log(out.text);
     process.exit(out.exitCode);
@@ -227,10 +267,24 @@ program
   .description('Auto-fix suggestions: generate aiopt.patch (and optionally apply it via git apply)')
   .option('--out <dir>', 'output dir (default: ./aiopt-output)', DEFAULT_OUTPUT_DIR)
   .option('--apply', 'apply the generated patch via git apply')
+  .option('--json', 'print machine-readable JSON to stdout')
   .action(async (opts) => {
     const outDir = String(opts.out);
     const { runFix } = await import('./fix');
     const r = runFix(process.cwd(), { outDir, apply: Boolean(opts.apply) });
+
+    if (opts.json) {
+      const payload = {
+        ok: r.ok,
+        applied: r.applied,
+        patchPath: r.patchPath,
+        changedFiles: r.changedFiles,
+        hint: (r as any).hint || null
+      };
+      console.log(JSON.stringify(payload, null, 2));
+      process.exit(r.ok ? 0 : 1);
+    }
+
     console.log(`Patch: ${r.patchPath}`);
     if (r.changedFiles.length) {
       console.log(`Files: ${r.changedFiles.slice(0, 10).join(', ')}${r.changedFiles.length > 10 ? ' ...' : ''}`);
@@ -242,7 +296,7 @@ program
       process.exit(0);
     }
     if (!r.ok) {
-      console.error(`FAIL: could not apply patch${r.hint ? ` (${r.hint})` : ''}`);
+      console.error(`FAIL: could not apply patch${(r as any).hint ? ` (${(r as any).hint})` : ''}`);
       process.exit(1);
     }
     process.exit(0);
@@ -261,6 +315,7 @@ program
   .option('--retries-delta <n>', 'add n to retries (transform mode only)', (v) => Number(v))
   .option('--call-mult <n>', 'multiply call volume by n (traffic spike)', (v) => Number(v))
   .option('--budget-monthly <usd>', 'fail if estimated candidate monthly cost exceeds this budget', (v) => Number(v))
+  .option('--json', 'print machine-readable JSON to stdout')
   .action(async (opts) => {
     const rt = loadRateTable();
 
@@ -302,7 +357,25 @@ program
       }
     });
 
-    console.log(r.message);
+    if (opts.json) {
+      // Minimal stable JSON for agents/tools
+      const payload = {
+        exitCode: r.exitCode,
+        message: r.message,
+        mode: candidateEvents ? 'diff' : 'transform',
+        baseline: baselinePath,
+        candidate: candidatePath,
+        artifacts: {
+          outDir: path.resolve(DEFAULT_OUTPUT_DIR),
+          guard_last_txt: path.join(path.resolve(DEFAULT_OUTPUT_DIR), 'guard-last.txt'),
+          guard_last_json: path.join(path.resolve(DEFAULT_OUTPUT_DIR), 'guard-last.json'),
+          guard_history_jsonl: path.join(path.resolve(DEFAULT_OUTPUT_DIR), 'guard-history.jsonl')
+        }
+      };
+      console.log(JSON.stringify(payload, null, 2));
+    } else {
+      console.log(r.message);
+    }
 
     // Persist last guard output + history for local dashboard / CI attachments
     try {

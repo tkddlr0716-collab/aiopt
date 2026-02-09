@@ -1,0 +1,61 @@
+name: Dashboard feedback
+description: UX pain points, missing info, and requests for AIOpt dashboard
+labels: ["dashboard", "feedback"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for improving AIOpt.
+        This form is optimized for fast triage.
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Type
+      options:
+        - Bug (something broken)
+        - UX pain (confusing / too many steps)
+        - Feature request
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: Short + concrete.
+      placeholder: "I opened dashboard and it showed loading forever..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: meta
+    attributes:
+      label: Paste /api/_meta
+      description: Open http://127.0.0.1:<port>/api/_meta and paste the JSON.
+      render: json
+
+  - type: input
+    id: version
+    attributes:
+      label: aiopt version
+      placeholder: "0.3.x"
+
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: "Windows 11 / macOS / Ubuntu"
+
+  - type: input
+    id: node
+    attributes:
+      label: Node version
+      placeholder: "node -v"
+
+  - type: textarea
+    id: console
+    attributes:
+      label: Browser console error (if any)
+      description: Copy 1-3 lines from DevTools Console.
+      render: text

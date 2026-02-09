@@ -2549,7 +2549,7 @@ program.command("init").description("aiopt-input/ \uBC0F \uC0D8\uD50C usage.json
   }
   console.log("Ready: ./aiopt-output/");
 });
-program.command("scan").description("\uC785\uB825 \uB85C\uADF8(JSONL/CSV)\uB97C \uBD84\uC11D\uD558\uACE0 report.md/report.json + patches\uAE4C\uC9C0 \uC0DD\uC131").option("--input <path>", "input file path (default: ./aiopt-output/usage.jsonl)", DEFAULT_INPUT).option("--out <dir>", "output dir (default: ./aiopt-output)", DEFAULT_OUTPUT_DIR).action(async (opts) => {
+program.command("scan").description("\uC785\uB825 \uB85C\uADF8(JSONL/CSV)\uB97C \uBD84\uC11D\uD558\uACE0 report.md/report.json + patches\uAE4C\uC9C0 \uC0DD\uC131").option("--input <path>", "input file path (default: ./aiopt-output/usage.jsonl)", DEFAULT_INPUT).option("--out <dir>", "output dir (default: ./aiopt-output)", DEFAULT_OUTPUT_DIR).option("--json", "print machine-readable JSON to stdout").action(async (opts) => {
   const inputPath = String(opts.input);
   const outDir = String(opts.out);
   if (!import_fs15.default.existsSync(inputPath)) {
@@ -2563,6 +2563,26 @@ program.command("scan").description("\uC785\uB825 \uB85C\uADF8(JSONL/CSV)\uB97C 
   writeOutputs(outDir, analysis, savings, policy, { ...meta, cwd: process.cwd(), cliVersion: program.version() });
   const { buildTopFixes: buildTopFixes2 } = await Promise.resolve().then(() => (init_solutions(), solutions_exports));
   const fixes = buildTopFixes2(analysis, savings).slice(0, 3);
+  if (opts.json) {
+    const payload = {
+      ok: true,
+      outDir,
+      input: inputPath,
+      report: {
+        report_md: import_path16.default.join(outDir, "report.md"),
+        report_json: import_path16.default.join(outDir, "report.json"),
+        cost_policy_json: import_path16.default.join(outDir, "cost-policy.json"),
+        sarif: import_path16.default.join(outDir, "aiopt.sarif")
+      },
+      summary: {
+        total_cost_usd: analysis.total_cost,
+        estimated_savings_usd: savings.estimated_savings_total,
+        confidence: meta?.mode || null
+      }
+    };
+    console.log(JSON.stringify(payload, null, 2));
+    return;
+  }
   console.log("Top Fix 3:");
   fixes.forEach((f, i) => {
     const tag = f.status === "no-issue" ? "(no issue detected)" : `($${Math.round(f.impact_usd * 100) / 100})`;
@@ -2648,7 +2668,7 @@ licenseCmd.command("status").option("--path <path>", "license.json path (default
   console.log(`INVALID: ${v.reason || "unknown"}`);
   process.exit(3);
 });
-program.command("gate").description("Merge gate (CI-friendly): fail (exit 1) when policy violations are detected; prints <=10 lines").option("--input <path>", "input usage jsonl/csv (default: ./aiopt-output/usage.jsonl)", DEFAULT_INPUT).option("--out <dir>", "output dir (default: ./aiopt-output)", DEFAULT_OUTPUT_DIR).action(async (opts) => {
+program.command("gate").description("Merge gate (CI-friendly): fail (exit 1) when policy violations are detected; prints <=10 lines").option("--input <path>", "input usage jsonl/csv (default: ./aiopt-output/usage.jsonl)", DEFAULT_INPUT).option("--out <dir>", "output dir (default: ./aiopt-output)", DEFAULT_OUTPUT_DIR).option("--json", "print machine-readable JSON to stdout").action(async (opts) => {
   const inputPath = String(opts.input);
   const outDir = String(opts.out);
   if (!import_fs15.default.existsSync(inputPath)) {
@@ -2662,14 +2682,40 @@ program.command("gate").description("Merge gate (CI-friendly): fail (exit 1) whe
   writeOutputs(outDir, analysis, savings, policy, { ...meta, cwd: process.cwd(), cliVersion: program.version() });
   const { runGate: runGate2, formatGateStdout: formatGateStdout2 } = await Promise.resolve().then(() => (init_gate(), gate_exports));
   const r = runGate2(outDir, process.cwd());
+  if (opts.json) {
+    const payload = {
+      ok: r.violations <= 0,
+      exitCode: r.violations <= 0 ? 0 : 1,
+      violations: r.violations,
+      top3: r.top3,
+      artifacts: {
+        report_md: import_path16.default.join(outDir, "report.md"),
+        sarif: import_path16.default.join(outDir, "aiopt.sarif"),
+        patches_dir: import_path16.default.join(outDir, "patches")
+      }
+    };
+    console.log(JSON.stringify(payload, null, 2));
+    process.exit(payload.exitCode);
+  }
   const out = formatGateStdout2(r, outDir);
   console.log(out.text);
   process.exit(out.exitCode);
 });
-program.command("fix").description("Auto-fix suggestions: generate aiopt.patch (and optionally apply it via git apply)").option("--out <dir>", "output dir (default: ./aiopt-output)", DEFAULT_OUTPUT_DIR).option("--apply", "apply the generated patch via git apply").action(async (opts) => {
+program.command("fix").description("Auto-fix suggestions: generate aiopt.patch (and optionally apply it via git apply)").option("--out <dir>", "output dir (default: ./aiopt-output)", DEFAULT_OUTPUT_DIR).option("--apply", "apply the generated patch via git apply").option("--json", "print machine-readable JSON to stdout").action(async (opts) => {
   const outDir = String(opts.out);
   const { runFix: runFix2 } = await Promise.resolve().then(() => (init_fix(), fix_exports));
   const r = runFix2(process.cwd(), { outDir, apply: Boolean(opts.apply) });
+  if (opts.json) {
+    const payload = {
+      ok: r.ok,
+      applied: r.applied,
+      patchPath: r.patchPath,
+      changedFiles: r.changedFiles,
+      hint: r.hint || null
+    };
+    console.log(JSON.stringify(payload, null, 2));
+    process.exit(r.ok ? 0 : 1);
+  }
   console.log(`Patch: ${r.patchPath}`);
   if (r.changedFiles.length) {
     console.log(`Files: ${r.changedFiles.slice(0, 10).join(", ")}${r.changedFiles.length > 10 ? " ..." : ""}`);
@@ -2686,7 +2732,7 @@ program.command("fix").description("Auto-fix suggestions: generate aiopt.patch (
   }
   process.exit(0);
 });
-program.command("guard").description("Pre-deploy guardrail: compare baseline usage vs candidate change (or diff two log sets) and print warnings (exit codes 0/2/3)").option("--input <path>", "baseline usage jsonl/csv (legacy alias for --baseline; default: ./aiopt-output/usage.jsonl)", DEFAULT_INPUT).option("--baseline <path>", "baseline usage jsonl/csv (diff mode when used with --candidate)").option("--candidate <path>", "candidate usage jsonl/csv (diff mode: compare two real log sets)").option("--provider <provider>", "candidate provider override (transform mode only)").option("--model <model>", "candidate model override (transform mode only)").option("--context-mult <n>", "multiply input_tokens by n (transform mode only)", (v) => Number(v)).option("--output-mult <n>", "multiply output_tokens by n (transform mode only)", (v) => Number(v)).option("--retries-delta <n>", "add n to retries (transform mode only)", (v) => Number(v)).option("--call-mult <n>", "multiply call volume by n (traffic spike)", (v) => Number(v)).option("--budget-monthly <usd>", "fail if estimated candidate monthly cost exceeds this budget", (v) => Number(v)).action(async (opts) => {
+program.command("guard").description("Pre-deploy guardrail: compare baseline usage vs candidate change (or diff two log sets) and print warnings (exit codes 0/2/3)").option("--input <path>", "baseline usage jsonl/csv (legacy alias for --baseline; default: ./aiopt-output/usage.jsonl)", DEFAULT_INPUT).option("--baseline <path>", "baseline usage jsonl/csv (diff mode when used with --candidate)").option("--candidate <path>", "candidate usage jsonl/csv (diff mode: compare two real log sets)").option("--provider <provider>", "candidate provider override (transform mode only)").option("--model <model>", "candidate model override (transform mode only)").option("--context-mult <n>", "multiply input_tokens by n (transform mode only)", (v) => Number(v)).option("--output-mult <n>", "multiply output_tokens by n (transform mode only)", (v) => Number(v)).option("--retries-delta <n>", "add n to retries (transform mode only)", (v) => Number(v)).option("--call-mult <n>", "multiply call volume by n (traffic spike)", (v) => Number(v)).option("--budget-monthly <usd>", "fail if estimated candidate monthly cost exceeds this budget", (v) => Number(v)).option("--json", "print machine-readable JSON to stdout").action(async (opts) => {
   const rt = loadRateTable();
   const baselinePath = String(opts.baseline || opts.input);
   const candidatePath = opts.candidate ? String(opts.candidate) : null;
@@ -2719,7 +2765,24 @@ program.command("guard").description("Pre-deploy guardrail: compare baseline usa
       budgetMonthlyUsd: opts.budgetMonthly
     }
   });
-  console.log(r.message);
+  if (opts.json) {
+    const payload = {
+      exitCode: r.exitCode,
+      message: r.message,
+      mode: candidateEvents ? "diff" : "transform",
+      baseline: baselinePath,
+      candidate: candidatePath,
+      artifacts: {
+        outDir: import_path16.default.resolve(DEFAULT_OUTPUT_DIR),
+        guard_last_txt: import_path16.default.join(import_path16.default.resolve(DEFAULT_OUTPUT_DIR), "guard-last.txt"),
+        guard_last_json: import_path16.default.join(import_path16.default.resolve(DEFAULT_OUTPUT_DIR), "guard-last.json"),
+        guard_history_jsonl: import_path16.default.join(import_path16.default.resolve(DEFAULT_OUTPUT_DIR), "guard-history.jsonl")
+      }
+    };
+    console.log(JSON.stringify(payload, null, 2));
+  } else {
+    console.log(r.message);
+  }
   try {
     const outDir = import_path16.default.resolve(DEFAULT_OUTPUT_DIR);
     import_fs15.default.mkdirSync(outDir, { recursive: true });
