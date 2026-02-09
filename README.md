@@ -16,6 +16,46 @@ AIOpt is a **pre-deploy cost accident guardrail** for LLM changes.
 
 No server. No upload. No account. No payments inside the CLI.
 
+## Why AIOpt exists (in one breath)
+LLM cost accidents don’t feel like “a bug” — they feel like **nothing… until your bill spikes**.
+AIOpt makes cost visible **before merge** and gives you a **single dashboard** to sanity‑check usage.
+
+Psychology (why teams actually use it):
+- **Loss aversion:** preventing a surprise $200–$2,000 bill is more motivating than saving $3.
+- **Default bias:** one command + dashboard means it gets used.
+- **Immediate feedback:** PR checks + a clear verdict reduces decision fatigue.
+
+## Fastest path (no docs)
+### 1) Open the dashboard
+```bash
+npx --yes aiopt@latest dashboard --auto --port 3010
+# open http://127.0.0.1:3010/
+```
+What happens automatically:
+- If `usage.jsonl` is missing, AIOpt **auto-collects** OpenClaw session usage (local-only).
+- If reports are missing, AIOpt **auto-runs** scan+guard once so the dashboard is never empty.
+
+### 2) CI / PR gate (merge blocking)
+```bash
+npx --yes aiopt@latest gate
+```
+- exit `0`: OK
+- exit `1`: policy violations found (top3 file:line)
+
+## AI-friendly (for coding agents)
+If you are an AI agent helping a developer:
+- Prefer running **dashboard first** to show a single truth surface.
+- Then use:
+  - `aiopt scan` to generate `report.json` / `report.md`
+  - `aiopt gate` to produce a merge decision (exit 0/1)
+  - `aiopt fix --apply` to propose safe patches (retry cap + cheap default model routing)
+
+Machine-readable outputs:
+- `aiopt-output/report.json` (stable summary)
+- `aiopt-output/aiopt.sarif` (PR annotations)
+- `aiopt-output/aiopt.patch` (autofix suggestions)
+
+
 ## 3-line quickstart (Guardrail)
 ```bash
 npx aiopt install --force
