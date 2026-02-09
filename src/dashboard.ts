@@ -87,7 +87,7 @@ export async function startDashboard(cwd: string, opts: { port: number }) {
         <div class="mini" id="baseDir">base: —</div>
         <div class="mini" id="missingHint" style="margin-top:4px">checking files…</div>
       </div>
-      <div class="pill"><span class="dot"></span> local-only · reads <span class="k">./aiopt-output</span></div>
+      <div class="pill"><span class="dot"></span> local-only · reads <span class="k">./aiopt-output</span> · <span id="live" class="muted">live: off</span></div>
     </div>
 
     <div class="grid">
@@ -135,8 +135,16 @@ export async function startDashboard(cwd: string, opts: { port: number }) {
 
         <div style="height:12px"></div>
         <div class="row" style="justify-content:space-between">
-          <div style="font-weight:900">Cost trend (last 7d)</div>
+          <div style="font-weight:900">Live usage (last 60m)</div>
           <div class="mini"><a href="/api/usage.jsonl" target="_blank">usage.jsonl</a></div>
+        </div>
+        <div id="liveSvg" style="margin-top:8px"></div>
+        <pre id="liveText" style="margin-top:8px">loading…</pre>
+
+        <div style="height:12px"></div>
+        <div class="row" style="justify-content:space-between">
+          <div style="font-weight:900">Cost trend (last 7d)</div>
+          <div class="mini">(from usage.jsonl)</div>
         </div>
         <div id="trendSvg" style="margin-top:8px"></div>
         <pre id="trend" style="margin-top:8px">loading…</pre>
@@ -187,7 +195,11 @@ function renderBars(el, items){
   }
 }
 
+let __live = false;
+let __tick = 0;
+
 async function load(){
+  __tick++;
   // If fetch hangs / fails, do not leave “loading…” forever.
   const timer = setTimeout(()=>{
     const el = document.getElementById('missingHint');
@@ -198,7 +210,7 @@ async function load(){
 
   let meta = null;
   try{
-    meta = await fetch('/api/_meta').then(r=>r.ok?r.json():null);
+    meta = await fetch('/api/_meta', { cache: 'no-store' }).then(r=>r.ok?r.json():null);
   }catch{}
   clearTimeout(timer);
 
@@ -216,8 +228,8 @@ async function load(){
     hint.textContent = 'missing: (unknown — failed to load /api/_meta)';
   }
 
-  const guardTxt = await fetch('/api/guard-last.txt').then(r=>r.ok?r.text():null).catch(()=>null);
-  const guardMeta = await fetch('/api/guard-last.json').then(r=>r.ok?r.json():null).catch(()=>null);
+  const guardTxt = await fetch('/api/guard-last.txt', { cache: 'no-store' }).then(r=>r.ok?r.text():null).catch(()=>null);
+  const guardMeta = await fetch('/api/guard-last.json', { cache: 'no-store' }).then(r=>r.ok?r.json():null).catch(()=>null);
 
   document.getElementById('guard').textContent = guardTxt || '(no guard-last.txt yet — run: aiopt guard)';
   if(guardMeta){
@@ -231,7 +243,7 @@ async function load(){
     else {badge.classList.add('fail'); t.textContent='FAIL (3)';}
   }
 
-  const histTxt = await fetch('/api/guard-history.jsonl').then(r=>r.ok?r.text():null).catch(()=>null);
+  const histTxt = await fetch('/api/guard-history.jsonl', { cache: 'no-store' }).then(r=>r.ok?r.text():null).catch(()=>null);
   if(histTxt){
     const lines = histTxt.trim().split('\n').filter(Boolean).slice(-15).reverse();
     const pretty = [];
@@ -250,7 +262,7 @@ async function load(){
     document.getElementById('guardHist').textContent = '(no guard-history.jsonl yet — run: aiopt guard)';
   }
 
-  const reportJson = await fetch('/api/report.json').then(r=>r.ok?r.json():null).catch(()=>null);
+  const reportJson = await fetch('/api/report.json', { cache: 'no-store' }).then(r=>r.ok?r.json():null).catch(()=>null);
   if(reportJson){
     const total = reportJson.summary && reportJson.summary.total_cost_usd;
     const sav = reportJson.summary && reportJson.summary.estimated_savings_usd;
@@ -263,62 +275,122 @@ async function load(){
     document.getElementById('scanMeta').textContent = '(no report.json yet — run: aiopt scan)';
   }
 
-  const usageTxt = await fetch('/api/usage.jsonl').then(r=>r.ok?r.text():null).catch(()=>null);
+  const usageTxt = await fetch('/api/usage.jsonl', { cache: 'no-store' }).then(r=>r.ok?r.text():null).catch(()=>null);
   if(usageTxt){
-    // 7d cost trend: sum(cost_usd) per day from usage.jsonl (ev.ts).
     const now = Date.now();
+
+    // Live: last 60m (per-minute cost + calls)
+    const liveBins = Array.from({length:60}, (_,i)=>({ min:i, cost:0, calls:0 }));
+
+    // 7d cost trend: sum(cost_usd) per day from usage.jsonl (ev.ts).
     const bins = Array.from({length:7}, (_,i)=>({ day:i, cost:0, calls:0 }));
+
     for(const line of usageTxt.trim().split('\n')){
       if(!line) continue;
       try{
         const ev = JSON.parse(line);
         const t = Date.parse(ev.ts);
         if(!Number.isFinite(t)) continue;
+
+        const cost = Number(ev.cost_usd);
+        const c = Number.isFinite(cost) ? cost : 0;
+
+        // live minute bin
+        const dm = Math.floor((now - t) / 60000);
+        if(dm>=0 && dm<60){
+          liveBins[dm].calls++;
+          liveBins[dm].cost += c;
+        }
+
+        // 7d day bin
         const d = Math.floor((now - t) / 86400000);
         if(d>=0 && d<7){
           bins[d].calls++;
-          const c = Number(ev.cost_usd);
-          if(Number.isFinite(c)) bins[d].cost += c;
+          bins[d].cost += c;
         }
       }catch{}
     }
 
-    // SVG sparkline
-    const W=520, H=120, P=12;
-    const pts = bins.slice().reverse();
-    const max = Math.max(...pts.map(b=>b.cost), 0.000001);
-    const xs = pts.map((_,i)=> P + (i*(W-2*P))/6);
-    const ys = pts.map(b=> H-P - ((b.cost/max)*(H-2*P)) );
-    let d = '';
-    for(let i=0;i<xs.length;i++) d += (i===0?'M':'L') + xs[i].toFixed(1)+','+ys[i].toFixed(1)+' ';
-    const area = 'M'+xs[0].toFixed(1)+','+(H-P).toFixed(1)+' ' + d + 'L'+xs[xs.length-1].toFixed(1)+','+(H-P).toFixed(1)+' Z';
+    // Live sparkline (last 60m)
+    {
+      const W=520, H=120, P=12;
+      const pts = liveBins.slice().reverse();
+      const max = Math.max(...pts.map(b=>b.cost), 0.000001);
+      const xs = pts.map((_,i)=> P + (i*(W-2*P))/59);
+      const ys = pts.map(b=> H-P - ((b.cost/max)*(H-2*P)) );
+      let d = '';
+      for(let i=0;i<xs.length;i++) d += (i===0?'M':'L') + xs[i].toFixed(1)+','+ys[i].toFixed(1)+' ';
+      const area = 'M'+xs[0].toFixed(1)+','+(H-P).toFixed(1)+' ' + d + 'L'+xs[xs.length-1].toFixed(1)+','+(H-P).toFixed(1)+' Z';
+      const svg =
+        '<svg viewBox="0 0 '+W+' '+H+'" width="100%" height="'+H+'" xmlns="http://www.w3.org/2000/svg" style="background:rgba(255,255,255,.02); border:1px solid rgba(255,255,255,.10); border-radius:14px">'+
+          '<path d="'+area+'" fill="rgba(167,139,250,.10)" />'+
+          '<path d="'+d+'" fill="none" stroke="rgba(167,139,250,.95)" stroke-width="2" />'+
+          '<text x="'+P+'" y="'+(P+10)+'" fill="rgba(229,231,235,.75)" font-size="11">max/min '+money(max)+'</text>'+
+        '</svg>';
+      document.getElementById('liveSvg').innerHTML = svg;
 
-    const circles = xs.map((x,i)=>'<circle cx="'+x.toFixed(1)+'" cy="'+ys[i].toFixed(1)+'" r="2.6" fill="rgba(52,211,153,.9)"/>').join('');
-    const svg =
-      '<svg viewBox="0 0 '+W+' '+H+'" width="100%" height="'+H+'" xmlns="http://www.w3.org/2000/svg" style="background:rgba(255,255,255,.02); border:1px solid rgba(255,255,255,.10); border-radius:14px">'+
-        '<path d="'+area+'" fill="rgba(96,165,250,.12)" />'+
-        '<path d="'+d+'" fill="none" stroke="rgba(96,165,250,.95)" stroke-width="2" />'+
-        circles+
-        '<text x="'+P+'" y="'+(P+10)+'" fill="rgba(229,231,235,.75)" font-size="11">max '+money(max)+'</text>'+
-      '</svg>';
-    document.getElementById('trendSvg').innerHTML = svg;
+      const rows = pts.slice(-10).map((b,idx)=>{
+        const mAgo = 9-idx;
+        const label = (mAgo===0 ? 'now' : (mAgo+'m'));
+        const dollars = ('$' + (Math.round(b.cost*100)/100).toFixed(2));
+        return String(label).padEnd(5) + ' ' + String(dollars).padStart(9) + '  (' + b.calls + ' calls)';
+      });
+      document.getElementById('liveText').textContent = rows.join('\n');
 
-    // Text fallback/detail
-    const rows = pts.map((b,idx)=>{
-      const label = (idx===pts.length-1 ? 'd-6' : (idx===0 ? 'today' : ('d-'+idx)));
-      const dollars = ('$' + (Math.round(b.cost*100)/100).toFixed(2));
-      return String(label).padEnd(7) + ' ' + String(dollars).padStart(9) + '  (' + b.calls + ' calls)';
-    });
-    document.getElementById('trend').textContent = rows.join('\n');
+      const totalLive = pts.reduce((a,b)=>a+b.cost,0);
+      const liveEl = document.getElementById('live');
+      if(liveEl){
+        liveEl.textContent = 'live: on · last60m ' + money(totalLive);
+      }
+    }
+
+    // 7d sparkline
+    {
+      const W=520, H=120, P=12;
+      const pts = bins.slice().reverse();
+      const max = Math.max(...pts.map(b=>b.cost), 0.000001);
+      const xs = pts.map((_,i)=> P + (i*(W-2*P))/6);
+      const ys = pts.map(b=> H-P - ((b.cost/max)*(H-2*P)) );
+      let d = '';
+      for(let i=0;i<xs.length;i++) d += (i===0?'M':'L') + xs[i].toFixed(1)+','+ys[i].toFixed(1)+' ';
+      const area = 'M'+xs[0].toFixed(1)+','+(H-P).toFixed(1)+' ' + d + 'L'+xs[xs.length-1].toFixed(1)+','+(H-P).toFixed(1)+' Z';
+
+      const circles = xs.map((x,i)=>'<circle cx="'+x.toFixed(1)+'" cy="'+ys[i].toFixed(1)+'" r="2.6" fill="rgba(52,211,153,.9)"/>').join('');
+      const svg =
+        '<svg viewBox="0 0 '+W+' '+H+'" width="100%" height="'+H+'" xmlns="http://www.w3.org/2000/svg" style="background:rgba(255,255,255,.02); border:1px solid rgba(255,255,255,.10); border-radius:14px">'+
+          '<path d="'+area+'" fill="rgba(96,165,250,.12)" />'+
+          '<path d="'+d+'" fill="none" stroke="rgba(96,165,250,.95)" stroke-width="2" />'+
+          circles+
+          '<text x="'+P+'" y="'+(P+10)+'" fill="rgba(229,231,235,.75)" font-size="11">max '+money(max)+'</text>'+
+        '</svg>';
+      document.getElementById('trendSvg').innerHTML = svg;
+
+      const rows = pts.map((b,idx)=>{
+        const label = (idx===pts.length-1 ? 'd-6' : (idx===0 ? 'today' : ('d-'+idx)));
+        const dollars = ('$' + (Math.round(b.cost*100)/100).toFixed(2));
+        return String(label).padEnd(7) + ' ' + String(dollars).padStart(9) + '  (' + b.calls + ' calls)';
+      });
+      document.getElementById('trend').textContent = rows.join('\n');
+    }
+
   } else {
+    document.getElementById('liveText').textContent = '(no usage.jsonl yet)';
+    document.getElementById('liveSvg').innerHTML = '';
     document.getElementById('trend').textContent = '(no usage.jsonl yet)';
     document.getElementById('trendSvg').innerHTML = '';
+    const liveEl = document.getElementById('live');
+    if(liveEl) liveEl.textContent = 'live: off';
   }
 
   const reportMd = await fetch('/api/report.md').then(r=>r.ok?r.text():null).catch(()=>null);
   document.getElementById('scan').textContent = reportMd || '(no report.md yet — run: aiopt scan)';
 }
+
+// Auto-refresh (simple polling): updates the dashboard as files change.
 load();
+setInterval(()=>{ load(); }, 2000);
+const liveEl = document.getElementById('live');
+if(liveEl) liveEl.textContent = 'live: on (polling)';
 </script>
 </body>
 </html>`;
