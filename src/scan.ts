@@ -3,6 +3,8 @@ import path from 'path';
 import { RateTable, UsageEvent } from './types';
 import { costOfEvent, getRates } from './cost';
 import { buildTopFixes, writePatches } from './solutions';
+import { runCodeScan } from './code-scan';
+import { buildSarif } from './sarif';
 
 export type AnalysisJson = {
   total_cost: number;
@@ -245,7 +247,7 @@ function round2(n: number) {
   return Math.round(n * 100) / 100;
 }
 
-export function writeOutputs(outDir: string, analysis: AnalysisJson, savings: Savings, policy: PolicyJson, meta?: { mode?: 'attempt-log'|'legacy' }) {
+export function writeOutputs(outDir: string, analysis: AnalysisJson, savings: Savings, policy: PolicyJson, meta?: { mode?: 'attempt-log'|'legacy'; cwd?: string; cliVersion?: string }) {
   const mode = meta?.mode || 'legacy';
 
   fs.mkdirSync(outDir, { recursive: true });
@@ -340,4 +342,18 @@ export function writeOutputs(outDir: string, analysis: AnalysisJson, savings: Sa
   // patches/*
   const fixes = buildTopFixes(analysis, savings);
   writePatches(outDir, fixes);
+
+  // Optional: SARIF output for PR annotations (best-effort, compatibility-safe).
+  // This uses lightweight code scanning heuristics to produce file:line findings.
+  try {
+    const cwd = meta?.cwd;
+    const cliVersion = meta?.cliVersion || 'unknown';
+    if (cwd && fs.existsSync(cwd)) {
+      const findings = runCodeScan(cwd);
+      const sarif = buildSarif('aiopt', cliVersion, findings);
+      fs.writeFileSync(path.join(outDir, 'aiopt.sarif'), JSON.stringify(sarif, null, 2));
+    }
+  } catch {
+    // ignore
+  }
 }

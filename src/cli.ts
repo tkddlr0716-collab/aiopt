@@ -65,7 +65,8 @@ program
     // For reproducibility: embed input path & rate table meta
     policy.generated_from.input = inputPath;
 
-    writeOutputs(outDir, analysis, savings, policy, meta);
+    // Pass cwd + cli version for optional SARIF generation (code scan)
+    writeOutputs(outDir, analysis, savings, policy, { ...meta, cwd: process.cwd(), cliVersion: program.version() });
 
     // Console: Top Fix 3 (data-driven)
     const { buildTopFixes } = await import('./solutions');

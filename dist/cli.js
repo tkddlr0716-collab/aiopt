@@ -230,6 +230,169 @@ var init_solutions = __esm({
   }
 });
 
+// src/code-scan.ts
+function isTextLike(p) {
+  const ext = import_path3.default.extname(p).toLowerCase();
+  return [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".go", ".java", ".kt", ".rb", ".php"].includes(ext);
+}
+function walk(root, out) {
+  const items = import_fs3.default.readdirSync(root, { withFileTypes: true });
+  for (const it of items) {
+    if (DEFAULT_EXCLUDES.has(it.name)) continue;
+    const full = import_path3.default.join(root, it.name);
+    if (it.isDirectory()) walk(full, out);
+    else out.push(full);
+  }
+}
+function findAllLines(content, re) {
+  const lines = [];
+  const parts = content.split(/\r?\n/);
+  for (let i = 0; i < parts.length; i++) {
+    const line = parts[i];
+    if (re.test(line)) lines.push(i + 1);
+  }
+  return lines;
+}
+function runCodeScan(rootDir) {
+  const files = [];
+  walk(rootDir, files);
+  const findings = [];
+  for (const file of files) {
+    if (!isTextLike(file)) continue;
+    let st;
+    try {
+      st = import_fs3.default.statSync(file);
+    } catch {
+      continue;
+    }
+    if (!st.isFile()) continue;
+    if (st.size > 1024 * 1024) continue;
+    let content = "";
+    try {
+      content = import_fs3.default.readFileSync(file, "utf8");
+    } catch {
+      continue;
+    }
+    for (const ln of findAllLines(content, /\b(maxRetries|maximumRetries|retries|max_attempts|attempts)\s*[:=]\s*(\d{2,}|[6-9])\b/i)) {
+      findings.push({
+        ruleId: "AIOPT.RETRY.EXPLOSION_RISK",
+        level: "warning",
+        message: "High retry/attempt count detected. Consider capping retries to prevent cost explosions.",
+        file,
+        line: ln,
+        help: "Cap retries (e.g. 2-3), add backoff, and fail fast on non-retriable errors."
+      });
+      break;
+    }
+    for (const ln of findAllLines(content, /(gpt-5\.?2|gpt-4\.?|o1-|o3-|claude-3|sonnet|opus)/i)) {
+      findings.push({
+        ruleId: "AIOPT.MODEL.ROUTING.EXPENSIVE_DEFAULT",
+        level: "note",
+        message: "Possible expensive model hard-coded. Consider cheap default + explicit override for critical paths.",
+        file,
+        line: ln,
+        help: "Route cheap by default; allow overrides via env/config for high-impact tasks."
+      });
+      break;
+    }
+    const hasOpenAI = /\bopenai\b|\bOpenAI\b|responses\.create|chat\.completions\.create/i.test(content);
+    const hasTimeout = /\btimeout\b|\brequestTimeout\b|\bsignal\b/i.test(content);
+    if (hasOpenAI && !hasTimeout) {
+      findings.push({
+        ruleId: "AIOPT.TIMEOUT.MISSING",
+        level: "note",
+        message: "OpenAI/LLM call detected without obvious timeout. Add a timeout to reduce hanging retries and cost waste.",
+        file,
+        line: 1,
+        help: "Add request timeout / AbortSignal and handle retryable errors explicitly."
+      });
+    }
+  }
+  return findings.slice(0, 200);
+}
+var import_fs3, import_path3, DEFAULT_EXCLUDES;
+var init_code_scan = __esm({
+  "src/code-scan.ts"() {
+    "use strict";
+    import_fs3 = __toESM(require("fs"));
+    import_path3 = __toESM(require("path"));
+    DEFAULT_EXCLUDES = /* @__PURE__ */ new Set([
+      ".git",
+      "node_modules",
+      "dist",
+      "aiopt-output",
+      ".next",
+      "build",
+      "coverage"
+    ]);
+  }
+});
+
+// src/sarif.ts
+function toUri(p) {
+  const abs = import_path4.default.resolve(p);
+  const u = abs.replace(/\\/g, "/");
+  return u.match(/^[A-Za-z]:\//) ? `file:///${u}` : `file://${u}`;
+}
+function buildSarif(toolName, toolVersion, findings) {
+  const rulesMap = /* @__PURE__ */ new Map();
+  for (const f of findings) {
+    if (!rulesMap.has(f.ruleId)) {
+      rulesMap.set(f.ruleId, {
+        id: f.ruleId,
+        shortDescription: f.ruleId,
+        help: f.help
+      });
+    }
+  }
+  const rules = [...rulesMap.values()].map((r) => ({
+    id: r.id,
+    shortDescription: { text: r.shortDescription },
+    help: r.help ? { text: r.help } : void 0
+  })).map((x) => {
+    const y = { ...x };
+    if (!y.help) delete y.help;
+    return y;
+  });
+  const results = findings.map((f) => ({
+    ruleId: f.ruleId,
+    level: f.level,
+    message: { text: f.message },
+    locations: [
+      {
+        physicalLocation: {
+          artifactLocation: { uri: toUri(f.file) },
+          region: { startLine: Math.max(1, Math.floor(f.line || 1)) }
+        }
+      }
+    ]
+  }));
+  return {
+    $schema: "https://json.schemastore.org/sarif-2.1.0.json",
+    version: "2.1.0",
+    runs: [
+      {
+        tool: {
+          driver: {
+            name: toolName,
+            version: toolVersion,
+            informationUri: "https://www.npmjs.com/package/aiopt",
+            rules
+          }
+        },
+        results
+      }
+    ]
+  };
+}
+var import_path4;
+var init_sarif = __esm({
+  "src/sarif.ts"() {
+    "use strict";
+    import_path4 = __toESM(require("path"));
+  }
+});
+
 // src/scan.ts
 function topN(map, n) {
   return [...map.entries()].map(([key, v]) => ({ key, cost: v.cost, events: v.events })).sort((a, b) => b.cost - a.cost).slice(0, n);
@@ -387,8 +550,8 @@ function round22(n) {
 }
 function writeOutputs(outDir, analysis, savings, policy, meta) {
   const mode = meta?.mode || "legacy";
-  import_fs3.default.mkdirSync(outDir, { recursive: true });
-  import_fs3.default.writeFileSync(import_path3.default.join(outDir, "analysis.json"), JSON.stringify(analysis, null, 2));
+  import_fs4.default.mkdirSync(outDir, { recursive: true });
+  import_fs4.default.writeFileSync(import_path5.default.join(outDir, "analysis.json"), JSON.stringify(analysis, null, 2));
   const unknownCount = analysis.unknown_models?.length || 0;
   const confidence = unknownCount === 0 ? "HIGH" : unknownCount <= 3 ? "MED" : "LOW";
   const ratio = analysis.total_cost > 0 ? savings.estimated_savings_total / analysis.total_cost : 0;
@@ -420,7 +583,7 @@ function writeOutputs(outDir, analysis, savings, policy, meta) {
     unknown_models: analysis.unknown_models,
     notes: savings.notes
   };
-  import_fs3.default.writeFileSync(import_path3.default.join(outDir, "report.json"), JSON.stringify(reportJson, null, 2));
+  import_fs4.default.writeFileSync(import_path5.default.join(outDir, "report.json"), JSON.stringify(reportJson, null, 2));
   const ratioMd = analysis.total_cost > 0 ? savings.estimated_savings_total / analysis.total_cost : 0;
   const warningsMd = [];
   if (ratioMd >= 0.9) warningsMd.push("WARNING: estimated savings >= 90% \u2014 check overlap/missing rate table");
@@ -449,7 +612,7 @@ function writeOutputs(outDir, analysis, savings, policy, meta) {
     "- `aiopt-output/patches/*`",
     ""
   ].join("\n");
-  import_fs3.default.writeFileSync(import_path3.default.join(outDir, "report.md"), reportMd);
+  import_fs4.default.writeFileSync(import_path5.default.join(outDir, "report.md"), reportMd);
   const reportTxt = [
     `\uCD1D\uBE44\uC6A9: $${analysis.total_cost}`,
     `\uC808\uAC10 \uAC00\uB2A5 \uAE08\uC561(Estimated): $${savings.estimated_savings_total}`,
@@ -459,19 +622,31 @@ function writeOutputs(outDir, analysis, savings, policy, meta) {
     savings.notes[2],
     ""
   ].join("\n");
-  import_fs3.default.writeFileSync(import_path3.default.join(outDir, "report.txt"), reportTxt);
-  import_fs3.default.writeFileSync(import_path3.default.join(outDir, "cost-policy.json"), JSON.stringify(policy, null, 2));
+  import_fs4.default.writeFileSync(import_path5.default.join(outDir, "report.txt"), reportTxt);
+  import_fs4.default.writeFileSync(import_path5.default.join(outDir, "cost-policy.json"), JSON.stringify(policy, null, 2));
   const fixes = buildTopFixes(analysis, savings);
   writePatches(outDir, fixes);
+  try {
+    const cwd = meta?.cwd;
+    const cliVersion = meta?.cliVersion || "unknown";
+    if (cwd && import_fs4.default.existsSync(cwd)) {
+      const findings = runCodeScan(cwd);
+      const sarif = buildSarif("aiopt", cliVersion, findings);
+      import_fs4.default.writeFileSync(import_path5.default.join(outDir, "aiopt.sarif"), JSON.stringify(sarif, null, 2));
+    }
+  } catch {
+  }
 }
-var import_fs3, import_path3, ROUTE_TO_CHEAP_FEATURES;
+var import_fs4, import_path5, ROUTE_TO_CHEAP_FEATURES;
 var init_scan = __esm({
   "src/scan.ts"() {
     "use strict";
-    import_fs3 = __toESM(require("fs"));
-    import_path3 = __toESM(require("path"));
+    import_fs4 = __toESM(require("fs"));
+    import_path5 = __toESM(require("path"));
     init_cost();
     init_solutions();
+    init_code_scan();
+    init_sarif();
     ROUTE_TO_CHEAP_FEATURES = /* @__PURE__ */ new Set(["summarize", "classify", "translate"]);
   }
 });
@@ -522,19 +697,19 @@ __export(install_exports, {
   runInstall: () => runInstall
 });
 function ensureDir2(p) {
-  import_fs4.default.mkdirSync(p, { recursive: true });
+  import_fs5.default.mkdirSync(p, { recursive: true });
 }
 function writeFile(filePath, content, force) {
-  if (!force && import_fs4.default.existsSync(filePath)) return { wrote: false, reason: "exists" };
-  ensureDir2(import_path4.default.dirname(filePath));
-  import_fs4.default.writeFileSync(filePath, content);
+  if (!force && import_fs5.default.existsSync(filePath)) return { wrote: false, reason: "exists" };
+  ensureDir2(import_path6.default.dirname(filePath));
+  import_fs5.default.writeFileSync(filePath, content);
   return { wrote: true };
 }
 function runInstall(cwd, opts) {
   const force = Boolean(opts.force);
-  const aioptDir = import_path4.default.join(cwd, "aiopt");
-  const policiesDir = import_path4.default.join(aioptDir, "policies");
-  const outDir = import_path4.default.join(cwd, "aiopt-output");
+  const aioptDir = import_path6.default.join(cwd, "aiopt");
+  const policiesDir = import_path6.default.join(aioptDir, "policies");
+  const outDir = import_path6.default.join(cwd, "aiopt-output");
   ensureDir2(aioptDir);
   ensureDir2(policiesDir);
   ensureDir2(outDir);
@@ -590,7 +765,7 @@ return {
 };
 \`\`\`
 `;
-  const r1 = writeFile(import_path4.default.join(aioptDir, "README.md"), readme, force);
+  const r1 = writeFile(import_path6.default.join(aioptDir, "README.md"), readme, force);
   created.push({ path: "aiopt/README.md", status: r1.wrote ? "created" : "skipped" });
   const config = {
     version: 1,
@@ -600,7 +775,7 @@ return {
     policies_dir: "./aiopt/policies",
     rate_table: { path: "./rates/rate_table.json" }
   };
-  const r2 = writeFile(import_path4.default.join(aioptDir, "aiopt.config.json"), JSON.stringify(config, null, 2) + "\n", force);
+  const r2 = writeFile(import_path6.default.join(aioptDir, "aiopt.config.json"), JSON.stringify(config, null, 2) + "\n", force);
   created.push({ path: "aiopt/aiopt.config.json", status: r2.wrote ? "created" : "skipped" });
   const routing = {
     version: 1,
@@ -631,15 +806,15 @@ return {
     reduce_top_percentile: 0.2,
     assumed_reduction_ratio: 0.25
   };
-  const p1 = writeFile(import_path4.default.join(policiesDir, "routing.json"), JSON.stringify(routing, null, 2) + "\n", force);
-  const p2 = writeFile(import_path4.default.join(policiesDir, "retry.json"), JSON.stringify(retry, null, 2) + "\n", force);
-  const p3 = writeFile(import_path4.default.join(policiesDir, "output.json"), JSON.stringify(output, null, 2) + "\n", force);
-  const p4 = writeFile(import_path4.default.join(policiesDir, "context.json"), JSON.stringify(context, null, 2) + "\n", force);
+  const p1 = writeFile(import_path6.default.join(policiesDir, "routing.json"), JSON.stringify(routing, null, 2) + "\n", force);
+  const p2 = writeFile(import_path6.default.join(policiesDir, "retry.json"), JSON.stringify(retry, null, 2) + "\n", force);
+  const p3 = writeFile(import_path6.default.join(policiesDir, "output.json"), JSON.stringify(output, null, 2) + "\n", force);
+  const p4 = writeFile(import_path6.default.join(policiesDir, "context.json"), JSON.stringify(context, null, 2) + "\n", force);
   created.push({ path: "aiopt/policies/routing.json", status: p1.wrote ? "created" : "skipped" });
   created.push({ path: "aiopt/policies/retry.json", status: p2.wrote ? "created" : "skipped" });
   created.push({ path: "aiopt/policies/output.json", status: p3.wrote ? "created" : "skipped" });
   created.push({ path: "aiopt/policies/context.json", status: p4.wrote ? "created" : "skipped" });
-  const wrapperPath = import_path4.default.join(aioptDir, "aiopt-wrapper.js");
+  const wrapperPath = import_path6.default.join(aioptDir, "aiopt-wrapper.js");
   const wrapper = `// AIOpt Wrapper (guardrails) \u2014 local-only (CommonJS)
 
 const fs = require('fs');
@@ -793,9 +968,9 @@ module.exports = { guardedCall };
   ;
   const w = writeFile(wrapperPath, wrapper, force);
   created.push({ path: "aiopt/aiopt-wrapper.js", status: w.wrote ? "created" : "skipped" });
-  const usagePath = import_path4.default.join(outDir, "usage.jsonl");
-  if (force || !import_fs4.default.existsSync(usagePath)) {
-    import_fs4.default.writeFileSync(usagePath, "");
+  const usagePath = import_path6.default.join(outDir, "usage.jsonl");
+  if (force || !import_fs5.default.existsSync(usagePath)) {
+    import_fs5.default.writeFileSync(usagePath, "");
     created.push({ path: "aiopt-output/usage.jsonl", status: "created" });
     if (opts.seedSample) {
       const sample = {
@@ -815,19 +990,19 @@ module.exports = { guardedCall };
         latency_ms: 1,
         meta: { feature_tag: "demo", routed_from: null, policy_hits: ["install-sample"] }
       };
-      import_fs4.default.appendFileSync(usagePath, JSON.stringify(sample) + "\n");
+      import_fs5.default.appendFileSync(usagePath, JSON.stringify(sample) + "\n");
     }
   } else {
     created.push({ path: "aiopt-output/usage.jsonl", status: "skipped" });
   }
   return { created };
 }
-var import_fs4, import_path4;
+var import_fs5, import_path6;
 var init_install = __esm({
   "src/install.ts"() {
     "use strict";
-    import_fs4 = __toESM(require("fs"));
-    import_path4 = __toESM(require("path"));
+    import_fs5 = __toESM(require("fs"));
+    import_path6 = __toESM(require("path"));
   }
 });
 
@@ -838,10 +1013,10 @@ __export(doctor_exports, {
 });
 function canWrite(dir) {
   try {
-    import_fs5.default.mkdirSync(dir, { recursive: true });
-    const p = import_path5.default.join(dir, `.aiopt-write-test-${Date.now()}`);
-    import_fs5.default.writeFileSync(p, "ok");
-    import_fs5.default.unlinkSync(p);
+    import_fs6.default.mkdirSync(dir, { recursive: true });
+    const p = import_path7.default.join(dir, `.aiopt-write-test-${Date.now()}`);
+    import_fs6.default.writeFileSync(p, "ok");
+    import_fs6.default.unlinkSync(p);
     return true;
   } catch {
     return false;
@@ -849,7 +1024,7 @@ function canWrite(dir) {
 }
 function tailLines(filePath, n) {
   try {
-    const raw = import_fs5.default.readFileSync(filePath, "utf8");
+    const raw = import_fs6.default.readFileSync(filePath, "utf8");
     const lines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
     return lines.slice(Math.max(0, lines.length - n));
   } catch {
@@ -857,15 +1032,15 @@ function tailLines(filePath, n) {
   }
 }
 function runDoctor(cwd) {
-  const aioptDir = import_path5.default.join(cwd, "aiopt");
-  const policiesDir = import_path5.default.join(aioptDir, "policies");
-  const outDir = import_path5.default.join(cwd, "aiopt-output");
-  const usagePath = import_path5.default.join(outDir, "usage.jsonl");
+  const aioptDir = import_path7.default.join(cwd, "aiopt");
+  const policiesDir = import_path7.default.join(aioptDir, "policies");
+  const outDir = import_path7.default.join(cwd, "aiopt-output");
+  const usagePath = import_path7.default.join(outDir, "usage.jsonl");
   const checks = [];
-  checks.push({ name: "aiopt/ exists", ok: import_fs5.default.existsSync(aioptDir) });
-  checks.push({ name: "aiopt/policies exists", ok: import_fs5.default.existsSync(policiesDir) });
+  checks.push({ name: "aiopt/ exists", ok: import_fs6.default.existsSync(aioptDir) });
+  checks.push({ name: "aiopt/policies exists", ok: import_fs6.default.existsSync(policiesDir) });
   checks.push({ name: "aiopt-output/ writable", ok: canWrite(outDir) });
-  checks.push({ name: "usage.jsonl exists", ok: import_fs5.default.existsSync(usagePath), detail: usagePath });
+  checks.push({ name: "usage.jsonl exists", ok: import_fs6.default.existsSync(usagePath), detail: usagePath });
   const last5raw = tailLines(usagePath, 5);
   const last5 = last5raw.length === 0 ? [{ status: "(empty usage.jsonl)" }] : last5raw.map((l) => {
     try {
@@ -903,12 +1078,12 @@ function runDoctor(cwd) {
   const ok = checks.every((c) => c.ok);
   return { ok, checks, last5 };
 }
-var import_fs5, import_path5;
+var import_fs6, import_path7;
 var init_doctor = __esm({
   "src/doctor.ts"() {
     "use strict";
-    import_fs5 = __toESM(require("fs"));
-    import_path5 = __toESM(require("path"));
+    import_fs6 = __toESM(require("fs"));
+    import_path7 = __toESM(require("path"));
   }
 });
 
@@ -963,7 +1138,7 @@ function verifyLicenseKey(key, publicKeyPem) {
   }
 }
 function defaultLicensePath(cwd) {
-  return import_path6.default.join(cwd, "aiopt", "license.json");
+  return import_path8.default.join(cwd, "aiopt", "license.json");
 }
 function writeLicenseFile(p, key, payload, verified) {
   const out = {
@@ -972,19 +1147,19 @@ function writeLicenseFile(p, key, payload, verified) {
     verified,
     verified_at: (/* @__PURE__ */ new Date()).toISOString()
   };
-  import_fs6.default.mkdirSync(import_path6.default.dirname(p), { recursive: true });
-  import_fs6.default.writeFileSync(p, JSON.stringify(out, null, 2));
+  import_fs7.default.mkdirSync(import_path8.default.dirname(p), { recursive: true });
+  import_fs7.default.writeFileSync(p, JSON.stringify(out, null, 2));
 }
 function readLicenseFile(p) {
-  return JSON.parse(import_fs6.default.readFileSync(p, "utf8"));
+  return JSON.parse(import_fs7.default.readFileSync(p, "utf8"));
 }
-var import_crypto, import_fs6, import_path6, DEFAULT_PUBLIC_KEY_PEM;
+var import_crypto, import_fs7, import_path8, DEFAULT_PUBLIC_KEY_PEM;
 var init_license = __esm({
   "src/license.ts"() {
     "use strict";
     import_crypto = __toESM(require("crypto"));
-    import_fs6 = __toESM(require("fs"));
-    import_path6 = __toESM(require("path"));
+    import_fs7 = __toESM(require("fs"));
+    import_path8 = __toESM(require("path"));
     DEFAULT_PUBLIC_KEY_PEM = `-----BEGIN PUBLIC KEY-----
 MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAz1LLE/pXIx5TloDa0LAf
 jg9NSIW6STWhsAFP2ZzXgpWoQ3cCmW6xcB/4QNEmPpGlfMWhyRfkxsdKuhnjUMTg
@@ -1221,12 +1396,12 @@ __export(dashboard_exports, {
 async function startDashboard(cwd, opts) {
   const host = "127.0.0.1";
   const port = opts.port || 3010;
-  const outDir = import_path7.default.join(cwd, "aiopt-output");
-  const file = (name) => import_path7.default.join(outDir, name);
+  const outDir = import_path9.default.join(cwd, "aiopt-output");
+  const file = (name) => import_path9.default.join(outDir, name);
   function readOrNull(p) {
     try {
-      if (!import_fs7.default.existsSync(p)) return null;
-      return import_fs7.default.readFileSync(p, "utf8");
+      if (!import_fs8.default.existsSync(p)) return null;
+      return import_fs8.default.readFileSync(p, "utf8");
     } catch {
       return null;
     }
@@ -1523,7 +1698,7 @@ load();
       const name = url.replace("/api/", "");
       if (name === "_meta") {
         const expected = ["guard-last.txt", "guard-last.json", "report.json", "report.md", "usage.jsonl", "guard-history.jsonl"];
-        const missing = expected.filter((f) => !import_fs7.default.existsSync(file(f)));
+        const missing = expected.filter((f) => !import_fs8.default.existsSync(file(f)));
         res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
         res.end(JSON.stringify({ baseDir: cwd, outDir, missing }, null, 2));
         return;
@@ -1558,13 +1733,13 @@ load();
   await new Promise(() => {
   });
 }
-var import_http, import_fs7, import_path7;
+var import_http, import_fs8, import_path9;
 var init_dashboard = __esm({
   "src/dashboard.ts"() {
     "use strict";
     import_http = __toESM(require("http"));
-    import_fs7 = __toESM(require("fs"));
-    import_path7 = __toESM(require("path"));
+    import_fs8 = __toESM(require("fs"));
+    import_path9 = __toESM(require("path"));
   }
 });
 
@@ -1574,55 +1749,55 @@ __export(find_output_exports, {
   findAioptOutputDir: () => findAioptOutputDir
 });
 function findAioptOutputDir(startCwd) {
-  let cur = import_path8.default.resolve(startCwd);
+  let cur = import_path10.default.resolve(startCwd);
   while (true) {
-    const outDir = import_path8.default.join(cur, "aiopt-output");
-    if (import_fs8.default.existsSync(outDir)) {
+    const outDir = import_path10.default.join(cur, "aiopt-output");
+    if (import_fs9.default.existsSync(outDir)) {
       try {
-        if (import_fs8.default.statSync(outDir).isDirectory()) return { cwd: cur, outDir };
+        if (import_fs9.default.statSync(outDir).isDirectory()) return { cwd: cur, outDir };
       } catch {
       }
     }
-    const parent = import_path8.default.dirname(cur);
+    const parent = import_path10.default.dirname(cur);
     if (parent === cur) break;
     cur = parent;
   }
   try {
-    const base = import_path8.default.resolve(startCwd);
-    const children = import_fs8.default.readdirSync(base, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => import_path8.default.join(base, d.name));
+    const base = import_path10.default.resolve(startCwd);
+    const children = import_fs9.default.readdirSync(base, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => import_path10.default.join(base, d.name));
     for (const child of children) {
-      const outDir = import_path8.default.join(child, "aiopt-output");
-      if (import_fs8.default.existsSync(outDir)) {
+      const outDir = import_path10.default.join(child, "aiopt-output");
+      if (import_fs9.default.existsSync(outDir)) {
         try {
-          if (import_fs8.default.statSync(outDir).isDirectory()) return { cwd: child, outDir };
+          if (import_fs9.default.statSync(outDir).isDirectory()) return { cwd: child, outDir };
         } catch {
         }
       }
     }
   } catch {
   }
-  return { cwd: import_path8.default.resolve(startCwd), outDir: import_path8.default.join(import_path8.default.resolve(startCwd), "aiopt-output") };
+  return { cwd: import_path10.default.resolve(startCwd), outDir: import_path10.default.join(import_path10.default.resolve(startCwd), "aiopt-output") };
 }
-var import_fs8, import_path8;
+var import_fs9, import_path10;
 var init_find_output = __esm({
   "src/find-output.ts"() {
     "use strict";
-    import_fs8 = __toESM(require("fs"));
-    import_path8 = __toESM(require("path"));
+    import_fs9 = __toESM(require("fs"));
+    import_path10 = __toESM(require("path"));
   }
 });
 
 // src/rates-util.ts
 function loadRateTableFromDistPath() {
-  const p = import_path9.default.join(__dirname, "..", "rates", "rate_table.json");
-  return JSON.parse(import_fs9.default.readFileSync(p, "utf8"));
+  const p = import_path11.default.join(__dirname, "..", "rates", "rate_table.json");
+  return JSON.parse(import_fs10.default.readFileSync(p, "utf8"));
 }
-var import_fs9, import_path9;
+var import_fs10, import_path11;
 var init_rates_util = __esm({
   "src/rates-util.ts"() {
     "use strict";
-    import_fs9 = __toESM(require("fs"));
-    import_path9 = __toESM(require("path"));
+    import_fs10 = __toESM(require("fs"));
+    import_path11 = __toESM(require("path"));
   }
 });
 
@@ -1633,8 +1808,8 @@ __export(quickstart_exports, {
   seedDemoUsage: () => seedDemoUsage
 });
 function seedDemoUsage(outDir) {
-  import_fs10.default.mkdirSync(outDir, { recursive: true });
-  const p = import_path10.default.join(outDir, "usage.jsonl");
+  import_fs11.default.mkdirSync(outDir, { recursive: true });
+  const p = import_path12.default.join(outDir, "usage.jsonl");
   const now = Date.now();
   const lines = [];
   for (let i = 0; i < 60; i++) {
@@ -1651,18 +1826,18 @@ function seedDemoUsage(outDir) {
       meta: { feature_tag: i % 2 ? "summarize" : "coding" }
     });
   }
-  import_fs10.default.writeFileSync(p, lines.map((x) => JSON.stringify(x)).join("\n") + "\n");
+  import_fs11.default.writeFileSync(p, lines.map((x) => JSON.stringify(x)).join("\n") + "\n");
   return p;
 }
 function runQuickstart(cwd, opts) {
-  const outDir = import_path10.default.join(cwd, "aiopt-output");
+  const outDir = import_path12.default.join(cwd, "aiopt-output");
   const usagePath = seedDemoUsage(outDir);
   const rt = loadRateTableFromDistPath();
   const { readJsonl: readJsonl2 } = (init_io(), __toCommonJS(io_exports));
   const events = readJsonl2(usagePath);
   const { analysis, savings, policy, meta } = analyze(rt, events);
-  import_fs10.default.writeFileSync(import_path10.default.join(outDir, "analysis.json"), JSON.stringify(analysis, null, 2));
-  import_fs10.default.writeFileSync(import_path10.default.join(outDir, "report.json"), JSON.stringify({
+  import_fs11.default.writeFileSync(import_path12.default.join(outDir, "analysis.json"), JSON.stringify(analysis, null, 2));
+  import_fs11.default.writeFileSync(import_path12.default.join(outDir, "report.json"), JSON.stringify({
     version: 3,
     generated_at: (/* @__PURE__ */ new Date()).toISOString(),
     confidence: analysis.unknown_models?.length ? "MEDIUM" : "HIGH",
@@ -1682,8 +1857,8 @@ function runQuickstart(cwd, opts) {
     unknown_models: analysis.unknown_models || [],
     notes: []
   }, null, 2));
-  import_fs10.default.writeFileSync(import_path10.default.join(outDir, "cost-policy.json"), JSON.stringify(policy, null, 2));
-  import_fs10.default.writeFileSync(import_path10.default.join(outDir, "report.md"), "# AIOpt quickstart demo\n\nThis is a demo report generated by `aiopt quickstart --demo`.\n");
+  import_fs11.default.writeFileSync(import_path12.default.join(outDir, "cost-policy.json"), JSON.stringify(policy, null, 2));
+  import_fs11.default.writeFileSync(import_path12.default.join(outDir, "report.md"), "# AIOpt quickstart demo\n\nThis is a demo report generated by `aiopt quickstart --demo`.\n");
   const r = runGuard(rt, {
     baselineEvents: events,
     candidate: {
@@ -1694,12 +1869,12 @@ function runQuickstart(cwd, opts) {
   });
   return { usagePath, outDir, guard: r, port: opts.port };
 }
-var import_fs10, import_path10;
+var import_fs11, import_path12;
 var init_quickstart = __esm({
   "src/quickstart.ts"() {
     "use strict";
-    import_fs10 = __toESM(require("fs"));
-    import_path10 = __toESM(require("path"));
+    import_fs11 = __toESM(require("fs"));
+    import_path12 = __toESM(require("path"));
     init_scan();
     init_rates_util();
     init_guard();
@@ -1707,8 +1882,8 @@ var init_quickstart = __esm({
 });
 
 // src/cli.ts
-var import_fs11 = __toESM(require("fs"));
-var import_path11 = __toESM(require("path"));
+var import_fs12 = __toESM(require("fs"));
+var import_path13 = __toESM(require("path"));
 var import_commander = require("commander");
 init_io();
 init_scan();
@@ -1716,17 +1891,17 @@ var program = new import_commander.Command();
 var DEFAULT_INPUT = "./aiopt-output/usage.jsonl";
 var DEFAULT_OUTPUT_DIR = "./aiopt-output";
 function loadRateTable() {
-  const p = import_path11.default.join(__dirname, "..", "rates", "rate_table.json");
-  return JSON.parse(import_fs11.default.readFileSync(p, "utf8"));
+  const p = import_path13.default.join(__dirname, "..", "rates", "rate_table.json");
+  return JSON.parse(import_fs12.default.readFileSync(p, "utf8"));
 }
 program.name("aiopt").description("AI \uBE44\uC6A9 \uC790\uB3D9 \uC808\uAC10 \uC778\uD504\uB77C \u2014 \uC11C\uBC84 \uC5C6\uB294 \uB85C\uCEEC CLI MVP").version(require_package().version);
 program.command("init").description("aiopt-input/ \uBC0F \uC0D8\uD50C usage.jsonl, aiopt-output/ \uC0DD\uC131").action(() => {
   ensureDir("./aiopt-input");
   ensureDir("./aiopt-output");
-  const sampleSrc = import_path11.default.join(__dirname, "..", "samples", "sample_usage.jsonl");
-  const dst = import_path11.default.join("./aiopt-input", "usage.jsonl");
-  if (!import_fs11.default.existsSync(dst)) {
-    import_fs11.default.copyFileSync(sampleSrc, dst);
+  const sampleSrc = import_path13.default.join(__dirname, "..", "samples", "sample_usage.jsonl");
+  const dst = import_path13.default.join("./aiopt-input", "usage.jsonl");
+  if (!import_fs12.default.existsSync(dst)) {
+    import_fs12.default.copyFileSync(sampleSrc, dst);
     console.log("Created ./aiopt-input/usage.jsonl (sample)");
   } else {
     console.log("Exists ./aiopt-input/usage.jsonl (skip)");
@@ -1736,7 +1911,7 @@ program.command("init").description("aiopt-input/ \uBC0F \uC0D8\uD50C usage.json
 program.command("scan").description("\uC785\uB825 \uB85C\uADF8(JSONL/CSV)\uB97C \uBD84\uC11D\uD558\uACE0 report.md/report.json + patches\uAE4C\uC9C0 \uC0DD\uC131").option("--input <path>", "input file path (default: ./aiopt-output/usage.jsonl)", DEFAULT_INPUT).option("--out <dir>", "output dir (default: ./aiopt-output)", DEFAULT_OUTPUT_DIR).action(async (opts) => {
   const inputPath = String(opts.input);
   const outDir = String(opts.out);
-  if (!import_fs11.default.existsSync(inputPath)) {
+  if (!import_fs12.default.existsSync(inputPath)) {
     console.error(`Input not found: ${inputPath}`);
     process.exit(1);
   }
@@ -1744,7 +1919,7 @@ program.command("scan").description("\uC785\uB825 \uB85C\uADF8(JSONL/CSV)\uB97C 
   const events = isCsvPath(inputPath) ? readCsv(inputPath) : readJsonl(inputPath);
   const { analysis, savings, policy, meta } = analyze(rt, events);
   policy.generated_from.input = inputPath;
-  writeOutputs(outDir, analysis, savings, policy, meta);
+  writeOutputs(outDir, analysis, savings, policy, { ...meta, cwd: process.cwd(), cliVersion: program.version() });
   const { buildTopFixes: buildTopFixes2 } = await Promise.resolve().then(() => (init_solutions(), solutions_exports));
   const fixes = buildTopFixes2(analysis, savings).slice(0, 3);
   console.log("Top Fix 3:");
@@ -1752,7 +1927,7 @@ program.command("scan").description("\uC785\uB825 \uB85C\uADF8(JSONL/CSV)\uB97C 
     const tag = f.status === "no-issue" ? "(no issue detected)" : `($${Math.round(f.impact_usd * 100) / 100})`;
     console.log(`${i + 1}) ${f.title} ${tag}`);
   });
-  console.log(`Report: ${import_path11.default.join(outDir, "report.md")}`);
+  console.log(`Report: ${import_path13.default.join(outDir, "report.md")}`);
 });
 program.command("policy").description("\uB9C8\uC9C0\uB9C9 scan \uACB0\uACFC \uAE30\uBC18\uC73C\uB85C cost-policy.json\uB9CC \uC7AC\uC0DD\uC131 (MVP: scan\uACFC \uB3D9\uC77C \uB85C\uC9C1)").option("--input <path>", "input file path (default: ./aiopt-input/usage.jsonl)", DEFAULT_INPUT).option("--out <dir>", "output dir (default: ./aiopt-output)", DEFAULT_OUTPUT_DIR).action((opts) => {
   const inputPath = String(opts.input);
@@ -1762,7 +1937,7 @@ program.command("policy").description("\uB9C8\uC9C0\uB9C9 scan \uACB0\uACFC \uAE
   const { policy } = analyze(rt, events);
   policy.generated_from.input = inputPath;
   ensureDir(outDir);
-  import_fs11.default.writeFileSync(import_path11.default.join(outDir, "cost-policy.json"), JSON.stringify(policy, null, 2));
+  import_fs12.default.writeFileSync(import_path13.default.join(outDir, "cost-policy.json"), JSON.stringify(policy, null, 2));
   console.log(`OK: ${outDir}/cost-policy.json`);
 });
 program.command("install").description("Install AIOpt guardrails: create aiopt/ + policies + usage.jsonl").option("--force", "overwrite existing files").option("--seed-sample", "seed 1 sample line into aiopt-output/usage.jsonl").action(async (opts) => {
@@ -1802,7 +1977,7 @@ licenseCmd.command("verify").option("--path <path>", "license.json path (default
   const { DEFAULT_PUBLIC_KEY_PEM: DEFAULT_PUBLIC_KEY_PEM2, defaultLicensePath: defaultLicensePath2, readLicenseFile: readLicenseFile2, verifyLicenseKey: verifyLicenseKey2 } = await Promise.resolve().then(() => (init_license(), license_exports));
   const p = opts.path ? String(opts.path) : defaultLicensePath2(process.cwd());
   const pub = process.env.AIOPT_LICENSE_PUBKEY || DEFAULT_PUBLIC_KEY_PEM2;
-  if (!import_fs11.default.existsSync(p)) {
+  if (!import_fs12.default.existsSync(p)) {
     console.error(`FAIL: license file not found: ${p}`);
     process.exit(3);
   }
@@ -1819,7 +1994,7 @@ licenseCmd.command("status").option("--path <path>", "license.json path (default
   const { DEFAULT_PUBLIC_KEY_PEM: DEFAULT_PUBLIC_KEY_PEM2, defaultLicensePath: defaultLicensePath2, readLicenseFile: readLicenseFile2, verifyLicenseKey: verifyLicenseKey2 } = await Promise.resolve().then(() => (init_license(), license_exports));
   const p = opts.path ? String(opts.path) : defaultLicensePath2(process.cwd());
   const pub = process.env.AIOPT_LICENSE_PUBKEY || DEFAULT_PUBLIC_KEY_PEM2;
-  if (!import_fs11.default.existsSync(p)) {
+  if (!import_fs12.default.existsSync(p)) {
     console.log("NO_LICENSE");
     process.exit(2);
   }
@@ -1841,11 +2016,11 @@ program.command("guard").description("Pre-deploy guardrail: compare baseline usa
     console.error("FAIL: diff mode requires both --baseline and --candidate");
     process.exit(3);
   }
-  if (!import_fs11.default.existsSync(baselinePath)) {
+  if (!import_fs12.default.existsSync(baselinePath)) {
     console.error(`FAIL: baseline not found: ${baselinePath}`);
     process.exit(3);
   }
-  if (candidatePath && !import_fs11.default.existsSync(candidatePath)) {
+  if (candidatePath && !import_fs12.default.existsSync(candidatePath)) {
     console.error(`FAIL: candidate not found: ${candidatePath}`);
     process.exit(3);
   }
@@ -1867,13 +2042,13 @@ program.command("guard").description("Pre-deploy guardrail: compare baseline usa
   });
   console.log(r.message);
   try {
-    const outDir = import_path11.default.resolve(DEFAULT_OUTPUT_DIR);
-    import_fs11.default.mkdirSync(outDir, { recursive: true });
+    const outDir = import_path13.default.resolve(DEFAULT_OUTPUT_DIR);
+    import_fs12.default.mkdirSync(outDir, { recursive: true });
     const ts = (/* @__PURE__ */ new Date()).toISOString();
-    import_fs11.default.writeFileSync(import_path11.default.join(outDir, "guard-last.txt"), r.message);
-    import_fs11.default.writeFileSync(import_path11.default.join(outDir, "guard-last.json"), JSON.stringify({ ts, exitCode: r.exitCode }, null, 2));
+    import_fs12.default.writeFileSync(import_path13.default.join(outDir, "guard-last.txt"), r.message);
+    import_fs12.default.writeFileSync(import_path13.default.join(outDir, "guard-last.json"), JSON.stringify({ ts, exitCode: r.exitCode }, null, 2));
     const histLine = JSON.stringify({ ts, exitCode: r.exitCode, mode: candidateEvents ? "diff" : "transform", baseline: baselinePath, candidate: candidatePath }) + "\n";
-    import_fs11.default.appendFileSync(import_path11.default.join(outDir, "guard-history.jsonl"), histLine);
+    import_fs12.default.appendFileSync(import_path13.default.join(outDir, "guard-history.jsonl"), histLine);
   } catch {
   }
   process.exit(r.exitCode);
@@ -1901,14 +2076,14 @@ program.command("quickstart").description("1-minute demo: generate sample usage,
   console.log("--- guard ---");
   console.log(r.guard.message);
   try {
-    const fs12 = await import("fs");
-    const path12 = await import("path");
-    fs12.mkdirSync(r.outDir, { recursive: true });
+    const fs13 = await import("fs");
+    const path14 = await import("path");
+    fs13.mkdirSync(r.outDir, { recursive: true });
     const ts = (/* @__PURE__ */ new Date()).toISOString();
-    fs12.writeFileSync(path12.join(r.outDir, "guard-last.txt"), r.guard.message);
-    fs12.writeFileSync(path12.join(r.outDir, "guard-last.json"), JSON.stringify({ ts, exitCode: r.guard.exitCode }, null, 2));
+    fs13.writeFileSync(path14.join(r.outDir, "guard-last.txt"), r.guard.message);
+    fs13.writeFileSync(path14.join(r.outDir, "guard-last.json"), JSON.stringify({ ts, exitCode: r.guard.exitCode }, null, 2));
     const histLine = JSON.stringify({ ts, exitCode: r.guard.exitCode, mode: "quickstart", baseline: r.usagePath, candidate: null }) + "\n";
-    fs12.appendFileSync(path12.join(r.outDir, "guard-history.jsonl"), histLine);
+    fs13.appendFileSync(path14.join(r.outDir, "guard-history.jsonl"), histLine);
   } catch {
   }
   console.log("--- next ---");
