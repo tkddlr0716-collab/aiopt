@@ -7,6 +7,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  security-events: write
 
 jobs:
   scan-gate:
@@ -51,6 +52,6 @@ jobs:
         with:
           sarif_file: aiopt-output/aiopt.sarif
 
-      # Gate will be implemented in a later commit. For now, keep PRs non-blocking.
-      - name: AIOpt gate (placeholder)
-        run: echo "gate will be added in Commit 4"
+      # Merge gate (Commit 4): blocks PR when violations are detected.
+      - name: AIOpt gate (merge-blocking)
+        run: node dist/cli.js gate --input ./aiopt-output/usage.jsonl --out ./aiopt-output
