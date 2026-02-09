@@ -1,6 +1,6 @@
 {
   "name": "aiopt",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Pre-deploy LLM cost accident guardrail (serverless local CLI)",
   "bin": {
     "aiopt": "dist/cli.js"
