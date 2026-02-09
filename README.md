@@ -140,10 +140,5 @@ npx aiopt license verify
 - Pricing/flow (internal): `docs/PRODUCT_PRICING_AND_FLOW.md`
 - Payment/license ops: `docs/PAYMENT.md`
 
-## Links
-- Landing: https://scoopingly-subcancellous-sunny.ngrok-free.dev/landing/
-- Buy: https://scoopingly-subcancellous-sunny.ngrok-free.dev/landing/buy
-- After purchase: https://scoopingly-subcancellous-sunny.ngrok-free.dev/landing/after
-
 ## Contact
 - Instagram: **@sangikpp**
