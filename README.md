@@ -15,14 +15,16 @@ AIOpt is a **pre-deploy cost accident guardrail** for LLM changes.
 
 No server. No upload. No account. No payments inside the CLI.
 
-## Why AIOpt exists (in one breath)
-LLM cost accidents don’t feel like “a bug” — they feel like **nothing… until your bill spikes**.
-AIOpt makes cost visible **before merge** and gives you a **single dashboard** to sanity‑check usage.
+## Why AIOpt exists
+LLM cost accidents don’t show up as obvious bugs. They show up as **quiet drift** — then a surprise bill.
+AIOpt makes cost visible **before merge** and gives you one place to sanity‑check usage.
 
-Psychology (why teams actually use it):
-- **Loss aversion:** preventing a surprise $200–$2,000 bill is more motivating than saving $3.
-- **Default bias:** one command + dashboard means it gets used.
-- **Immediate feedback:** PR checks + a clear verdict reduces decision fatigue.
+What you get:
+- A single **local dashboard** that is never empty (auto‑collects + auto‑reports).
+- A CI‑friendly **gate** that can block risky changes.
+- A safe **fix** path (patch suggestions) when you do find waste.
+
+When teams keep it: it’s fast enough to run every day, and it reduces the “are we about to ship a cost spike?” anxiety to one screen.
 
 ## Fastest path (no docs)
 ### 1) Open the dashboard (recommended)
