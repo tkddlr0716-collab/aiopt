@@ -294,111 +294,73 @@ async function load(){
     document.getElementById('scanMeta').textContent = '(no report.json yet — run: aiopt scan)';
   }
 
-  const usageTxt = await fetch('/api/usage.jsonl', { cache: 'no-store' }).then(r=>r.ok?r.text():null).catch(()=>null);
-  if(usageTxt){
-    const now = Date.now();
+  // Use computed JSON endpoints to avoid downloading/parsing huge usage.jsonl in the browser.
+  const live60 = await fetch('/api/live-60m.json', { cache: 'no-store' }).then(r=>r.ok?r.json():null).catch(()=>null);
+  const sum7d = await fetch('/api/usage-summary.json', { cache: 'no-store' }).then(r=>r.ok?r.json():null).catch(()=>null);
 
-    // Live: last 60m (per-minute cost + calls)
-    const liveBins = Array.from({length:60}, (_,i)=>({ min:i, cost:0, calls:0 }));
+  if(live60 && live60.bins){
+    const pts = (live60.bins || []).slice().reverse();
+    const W=520, H=120, P=12;
+    const max = Math.max(...pts.map(b=>Number(b.cost)||0), 0.000001);
+    const xs = pts.map((_,i)=> P + (i*(W-2*P))/59);
+    const ys = pts.map(b=> H-P - (((Number(b.cost)||0)/max)*(H-2*P)) );
+    let d = '';
+    for(let i=0;i<xs.length;i++) d += (i===0?'M':'L') + xs[i].toFixed(1)+','+ys[i].toFixed(1)+' ';
+    const area = 'M'+xs[0].toFixed(1)+','+(H-P).toFixed(1)+' ' + d + 'L'+xs[xs.length-1].toFixed(1)+','+(H-P).toFixed(1)+' Z';
+    const svg =
+      '<svg viewBox="0 0 '+W+' '+H+'" width="100%" height="'+H+'" xmlns="http://www.w3.org/2000/svg" style="background:rgba(255,255,255,.02); border:1px solid rgba(255,255,255,.10); border-radius:14px">'+
+        '<path d="'+area+'" fill="rgba(167,139,250,.10)" />'+
+        '<path d="'+d+'" fill="none" stroke="rgba(167,139,250,.95)" stroke-width="2" />'+
+        '<text x="'+P+'" y="'+(P+10)+'" fill="rgba(229,231,235,.75)" font-size="11">max/min '+money(max)+'</text>'+
+      '</svg>';
+    document.getElementById('liveSvg').innerHTML = svg;
 
-    // 7d cost trend: sum(cost_usd) per day from usage.jsonl (ev.ts).
-    const bins = Array.from({length:7}, (_,i)=>({ day:i, cost:0, calls:0 }));
+    const rows = pts.slice(-10).map((b,idx)=>{
+      const mAgo = 9-idx;
+      const label = (mAgo===0 ? 'now' : (mAgo+'m'));
+      const dollars = ('$' + (Math.round((Number(b.cost)||0)*100)/100).toFixed(2));
+      return String(label).padEnd(5) + ' ' + String(dollars).padStart(9) + '  (' + (b.calls||0) + ' calls)';
+    });
+    document.getElementById('liveText').textContent = rows.join('\n');
 
-    for(const line of usageTxt.trim().split('\n')){
-      if(!line) continue;
-      try{
-        const ev = JSON.parse(line);
-        const t = Date.parse(ev.ts);
-        if(!Number.isFinite(t)) continue;
-
-        const cost = Number(ev.cost_usd);
-        const c = Number.isFinite(cost) ? cost : 0;
-
-        // live minute bin
-        const dm = Math.floor((now - t) / 60000);
-        if(dm>=0 && dm<60){
-          liveBins[dm].calls++;
-          liveBins[dm].cost += c;
-        }
-
-        // 7d day bin
-        const d = Math.floor((now - t) / 86400000);
-        if(d>=0 && d<7){
-          bins[d].calls++;
-          bins[d].cost += c;
-        }
-      }catch{}
-    }
-
-    // Live sparkline (last 60m)
-    {
-      const W=520, H=120, P=12;
-      const pts = liveBins.slice().reverse();
-      const max = Math.max(...pts.map(b=>b.cost), 0.000001);
-      const xs = pts.map((_,i)=> P + (i*(W-2*P))/59);
-      const ys = pts.map(b=> H-P - ((b.cost/max)*(H-2*P)) );
-      let d = '';
-      for(let i=0;i<xs.length;i++) d += (i===0?'M':'L') + xs[i].toFixed(1)+','+ys[i].toFixed(1)+' ';
-      const area = 'M'+xs[0].toFixed(1)+','+(H-P).toFixed(1)+' ' + d + 'L'+xs[xs.length-1].toFixed(1)+','+(H-P).toFixed(1)+' Z';
-      const svg =
-        '<svg viewBox="0 0 '+W+' '+H+'" width="100%" height="'+H+'" xmlns="http://www.w3.org/2000/svg" style="background:rgba(255,255,255,.02); border:1px solid rgba(255,255,255,.10); border-radius:14px">'+
-          '<path d="'+area+'" fill="rgba(167,139,250,.10)" />'+
-          '<path d="'+d+'" fill="none" stroke="rgba(167,139,250,.95)" stroke-width="2" />'+
-          '<text x="'+P+'" y="'+(P+10)+'" fill="rgba(229,231,235,.75)" font-size="11">max/min '+money(max)+'</text>'+
-        '</svg>';
-      document.getElementById('liveSvg').innerHTML = svg;
-
-      const rows = pts.slice(-10).map((b,idx)=>{
-        const mAgo = 9-idx;
-        const label = (mAgo===0 ? 'now' : (mAgo+'m'));
-        const dollars = ('$' + (Math.round(b.cost*100)/100).toFixed(2));
-        return String(label).padEnd(5) + ' ' + String(dollars).padStart(9) + '  (' + b.calls + ' calls)';
-      });
-      document.getElementById('liveText').textContent = rows.join('\n');
-
-      const totalLive = pts.reduce((a,b)=>a+b.cost,0);
-      const liveEl = document.getElementById('live');
-      if(liveEl){
-        liveEl.textContent = 'live: on · last60m ' + money(totalLive);
-      }
-    }
-
-    // 7d sparkline
-    {
-      const W=520, H=120, P=12;
-      const pts = bins.slice().reverse();
-      const max = Math.max(...pts.map(b=>b.cost), 0.000001);
-      const xs = pts.map((_,i)=> P + (i*(W-2*P))/6);
-      const ys = pts.map(b=> H-P - ((b.cost/max)*(H-2*P)) );
-      let d = '';
-      for(let i=0;i<xs.length;i++) d += (i===0?'M':'L') + xs[i].toFixed(1)+','+ys[i].toFixed(1)+' ';
-      const area = 'M'+xs[0].toFixed(1)+','+(H-P).toFixed(1)+' ' + d + 'L'+xs[xs.length-1].toFixed(1)+','+(H-P).toFixed(1)+' Z';
-
-      const circles = xs.map((x,i)=>'<circle cx="'+x.toFixed(1)+'" cy="'+ys[i].toFixed(1)+'" r="2.6" fill="rgba(52,211,153,.9)"/>').join('');
-      const svg =
-        '<svg viewBox="0 0 '+W+' '+H+'" width="100%" height="'+H+'" xmlns="http://www.w3.org/2000/svg" style="background:rgba(255,255,255,.02); border:1px solid rgba(255,255,255,.10); border-radius:14px">'+
-          '<path d="'+area+'" fill="rgba(96,165,250,.12)" />'+
-          '<path d="'+d+'" fill="none" stroke="rgba(96,165,250,.95)" stroke-width="2" />'+
-          circles+
-          '<text x="'+P+'" y="'+(P+10)+'" fill="rgba(229,231,235,.75)" font-size="11">max '+money(max)+'</text>'+
-        '</svg>';
-      document.getElementById('trendSvg').innerHTML = svg;
-
-      const rows = pts.map((b,idx)=>{
-        const label = (idx===pts.length-1 ? 'd-6' : (idx===0 ? 'today' : ('d-'+idx)));
-        const dollars = ('$' + (Math.round(b.cost*100)/100).toFixed(2));
-        return String(label).padEnd(7) + ' ' + String(dollars).padStart(9) + '  (' + b.calls + ' calls)';
-      });
-      document.getElementById('trend').textContent = rows.join('\n');
-    }
-
-  } else {
-    document.getElementById('liveText').textContent = '(no usage.jsonl yet)';
-    document.getElementById('liveSvg').innerHTML = '';
-    document.getElementById('trend').textContent = '(no usage.jsonl yet)';
-    document.getElementById('trendSvg').innerHTML = '';
     const liveEl = document.getElementById('live');
-    if(liveEl) liveEl.textContent = 'live: off';
+    if(liveEl){
+      liveEl.textContent = 'live: on · last60m ' + money(live60.totalCostUsd || 0);
+    }
+  } else {
+    document.getElementById('liveText').textContent = '(no live data yet)';
+    document.getElementById('liveSvg').innerHTML = '';
+  }
+
+  if(sum7d && sum7d.dayBins){
+    const bins = sum7d.dayBins || [];
+    const W=520, H=120, P=12;
+    const pts = bins.slice().reverse();
+    const max = Math.max(...pts.map(b=>Number(b.cost)||0), 0.000001);
+    const xs = pts.map((_,i)=> P + (i*(W-2*P))/6);
+    const ys = pts.map(b=> H-P - (((Number(b.cost)||0)/max)*(H-2*P)) );
+    let d = '';
+    for(let i=0;i<xs.length;i++) d += (i===0?'M':'L') + xs[i].toFixed(1)+','+ys[i].toFixed(1)+' ';
+    const area = 'M'+xs[0].toFixed(1)+','+(H-P).toFixed(1)+' ' + d + 'L'+xs[xs.length-1].toFixed(1)+','+(H-P).toFixed(1)+' Z';
+    const circles = xs.map((x,i)=>'<circle cx="'+x.toFixed(1)+'" cy="'+ys[i].toFixed(1)+'" r="2.6" fill="rgba(52,211,153,.9)"/>').join('');
+    const svg =
+      '<svg viewBox="0 0 '+W+' '+H+'" width="100%" height="'+H+'" xmlns="http://www.w3.org/2000/svg" style="background:rgba(255,255,255,.02); border:1px solid rgba(255,255,255,.10); border-radius:14px">'+
+        '<path d="'+area+'" fill="rgba(96,165,250,.12)" />'+
+        '<path d="'+d+'" fill="none" stroke="rgba(96,165,250,.95)" stroke-width="2" />'+
+        circles+
+        '<text x="'+P+'" y="'+(P+10)+'" fill="rgba(229,231,235,.75)" font-size="11">max '+money(max)+'</text>'+
+      '</svg>';
+    document.getElementById('trendSvg').innerHTML = svg;
+
+    const rows = pts.map((b,idx)=>{
+      const label = (idx===pts.length-1 ? 'd-6' : (idx===0 ? 'today' : ('d-'+idx)));
+      const dollars = ('$' + (Math.round((Number(b.cost)||0)*100)/100).toFixed(2));
+      return String(label).padEnd(7) + ' ' + String(dollars).padStart(9) + '  (' + (b.calls||0) + ' calls)';
+    });
+    document.getElementById('trend').textContent = rows.join('\n');
+  } else {
+    document.getElementById('trend').textContent = '(no 7d data yet)';
+    document.getElementById('trendSvg').innerHTML = '';
   }
 
   const reportMd = await fetch('/api/report.md').then(r=>r.ok?r.text():null).catch(()=>null);
