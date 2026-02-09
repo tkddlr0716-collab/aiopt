@@ -656,7 +656,7 @@ var require_package = __commonJS({
   "package.json"(exports2, module2) {
     module2.exports = {
       name: "aiopt",
-      version: "0.3.2",
+      version: "0.3.3",
       description: "Pre-deploy LLM cost accident guardrail (serverless local CLI)",
       bin: {
         aiopt: "dist/cli.js"
@@ -1667,10 +1667,6 @@ var init_guard = __esm({
 });
 
 // src/collect.ts
-var collect_exports = {};
-__export(collect_exports, {
-  collectToUsageJsonl: () => collectToUsageJsonl
-});
 function exists(p) {
   try {
     return import_fs10.default.existsSync(p);
@@ -1819,13 +1815,17 @@ async function startDashboard(cwd, opts) {
   const port = opts.port || 3010;
   const outDir = import_path12.default.join(cwd, "aiopt-output");
   const file = (name) => import_path12.default.join(outDir, name);
+  let lastCollect = null;
+  let lastCollectError = null;
   function ensureUsageFile() {
     try {
       const usagePath = file("usage.jsonl");
       if (import_fs11.default.existsSync(usagePath)) return;
-      const { collectToUsageJsonl: collectToUsageJsonl2 } = (init_collect(), __toCommonJS(collect_exports));
-      collectToUsageJsonl2(usagePath);
-    } catch {
+      const r = collectToUsageJsonl(usagePath);
+      lastCollect = { ts: (/* @__PURE__ */ new Date()).toISOString(), outPath: r.outPath, sources: r.sources, eventsWritten: r.eventsWritten };
+      lastCollectError = null;
+    } catch (e) {
+      lastCollectError = String(e?.message || e || "collect failed");
     }
   }
   ensureUsageFile();
@@ -2232,7 +2232,7 @@ if(liveEl) liveEl.textContent = 'live: on (polling)';
         const expected = ["guard-last.txt", "guard-last.json", "report.json", "report.md", "usage.jsonl", "guard-history.jsonl"];
         const missing = expected.filter((f) => !import_fs11.default.existsSync(file(f)));
         res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
-        res.end(JSON.stringify({ baseDir: cwd, outDir, missing }, null, 2));
+        res.end(JSON.stringify({ baseDir: cwd, outDir, missing, collect: lastCollect, collectError: lastCollectError }, null, 2));
         return;
       }
       const allow = /* @__PURE__ */ new Set(["guard-last.txt", "guard-last.json", "guard-history.jsonl", "report.md", "report.json", "usage.jsonl"]);
@@ -2273,6 +2273,7 @@ var init_dashboard = __esm({
     import_http = __toESM(require("http"));
     import_fs11 = __toESM(require("fs"));
     import_path12 = __toESM(require("path"));
+    init_collect();
   }
 });
 

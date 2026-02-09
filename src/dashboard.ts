@@ -1,6 +1,7 @@
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
+import { collectToUsageJsonl } from './collect';
 
 export async function startDashboard(cwd: string, opts: { port: number }) {
   const host = '127.0.0.1';
@@ -10,14 +11,18 @@ export async function startDashboard(cwd: string, opts: { port: number }) {
   const file = (name: string) => path.join(outDir, name);
 
   // Auto-collect (best-effort): if usage.jsonl is missing, try to derive it from known local sources.
+  let lastCollect: null | { ts: string; outPath: string; sources: any; eventsWritten: number } = null;
+  let lastCollectError: null | string = null;
+
   function ensureUsageFile() {
     try {
       const usagePath = file('usage.jsonl');
       if (fs.existsSync(usagePath)) return;
-      const { collectToUsageJsonl } = require('./collect');
-      collectToUsageJsonl(usagePath);
-    } catch {
-      // ignore
+      const r = collectToUsageJsonl(usagePath);
+      lastCollect = { ts: new Date().toISOString(), outPath: r.outPath, sources: r.sources, eventsWritten: r.eventsWritten };
+      lastCollectError = null;
+    } catch (e: any) {
+      lastCollectError = String(e?.message || e || 'collect failed');
     }
   }
 
@@ -425,7 +430,7 @@ if(liveEl) liveEl.textContent = 'live: on (polling)';
         const expected = ['guard-last.txt', 'guard-last.json', 'report.json', 'report.md', 'usage.jsonl', 'guard-history.jsonl'];
         const missing = expected.filter(f => !fs.existsSync(file(f)));
         res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
-        res.end(JSON.stringify({ baseDir: cwd, outDir, missing }, null, 2));
+        res.end(JSON.stringify({ baseDir: cwd, outDir, missing, collect: lastCollect, collectError: lastCollectError }, null, 2));
         return;
       }
 
