@@ -2196,8 +2196,17 @@ if(liveEl) liveEl.textContent = 'live: on (polling)';
         res.end(JSON.stringify({ baseDir: cwd, outDir, missing, collect: lastCollect, collectError: lastCollectError }, null, 2));
         return;
       }
-      const allow = /* @__PURE__ */ new Set(["guard-last.txt", "guard-last.json", "guard-history.jsonl", "report.md", "report.json", "usage.jsonl"]);
-      if (name === "usage.jsonl") ensureUsageFile();
+      const allow = /* @__PURE__ */ new Set([
+        "guard-last.txt",
+        "guard-last.json",
+        "guard-history.jsonl",
+        "report.md",
+        "report.json",
+        "usage.jsonl",
+        "usage-summary.json",
+        "live-60m.json"
+      ]);
+      if (name === "usage.jsonl" || name === "usage-summary.json" || name === "live-60m.json") ensureUsageFile();
       if (!allow.has(name)) {
         res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
         res.end("not found");

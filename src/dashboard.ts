@@ -396,8 +396,15 @@ if(liveEl) liveEl.textContent = 'live: on (polling)';
         return;
       }
 
-      const allow = new Set(['guard-last.txt', 'guard-last.json', 'guard-history.jsonl', 'report.md', 'report.json', 'usage.jsonl']);
-      if (name === 'usage.jsonl') ensureUsageFile();
+      const allow = new Set([
+        'guard-last.txt', 'guard-last.json', 'guard-history.jsonl',
+        'report.md', 'report.json',
+        'usage.jsonl',
+        'usage-summary.json',
+        'live-60m.json'
+      ]);
+      // auto-collect hook for anything that depends on usage
+      if (name === 'usage.jsonl' || name === 'usage-summary.json' || name === 'live-60m.json') ensureUsageFile();
       if (!allow.has(name)) {
         res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
         res.end('not found');
