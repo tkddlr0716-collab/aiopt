@@ -6,3 +6,6 @@ aiopt-output/
 aiopt/license.json
 .tmp-license/
 .DS_Store
+
+# Local ad-hoc usage logs
+usage*.jsonl
