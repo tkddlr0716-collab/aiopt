@@ -174,19 +174,10 @@ Optional:
 - The local dashboard binds to **127.0.0.1** only.
 - Local providers are assumed **$0** by default (infra cost not included).
 
-## License (offline)
-If you have a signed license key:
-```bash
-npx aiopt license activate <LICENSE_KEY>
-npx aiopt license status
-npx aiopt license verify
-```
-
 ## Docs
 - Install-first guide: `aiopt/README.md`
 - Platform support / caveats: `docs/PLATFORM_SUPPORT.md`
 - Pricing/flow (internal): `docs/PRODUCT_PRICING_AND_FLOW.md`
-- Payment/license ops: `docs/PAYMENT.md`
 
 ## Contact
 - Instagram: **@sangikpp**
