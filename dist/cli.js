@@ -2732,12 +2732,14 @@ program.command("guard").description("Pre-deploy guardrail: compare baseline usa
   }
   process.exit(r.exitCode);
 });
-program.command("dashboard").description("Local dashboard (localhost only): view last guard + last scan outputs").option("--port <n>", "port (default: 3010)", (v) => Number(v), 3010).option("--dir <path>", "base directory containing ./aiopt-output (default: cwd)").option("--auto", "auto-detect by searching parents (and one-level children) for aiopt-output").action(async (opts) => {
+program.command("dashboard").description("Local dashboard (localhost only): view usage + scan + guard (auto-collects OpenClaw usage)").option("--port <n>", "port (default: 3010)", (v) => Number(v), 3010).option("--dir <path>", "base directory (default: ~/.aiopt). Use this to pin a consistent data source.").option("--auto", "auto-detect by searching parents (and one-level children) for aiopt-output (use only if you really want project-local)").action(async (opts) => {
   const { startDashboard: startDashboard2 } = await Promise.resolve().then(() => (init_dashboard(), dashboard_exports));
-  const base = opts.dir ? String(opts.dir) : process.cwd();
-  if (opts.auto) {
+  const os3 = await import("os");
+  const defaultBase = require("path").join(os3.homedir(), ".aiopt");
+  const base = opts.dir ? String(opts.dir) : defaultBase;
+  if (opts.auto && !opts.dir) {
     const { findAioptOutputDir: findAioptOutputDir2 } = await Promise.resolve().then(() => (init_find_output(), find_output_exports));
-    const found = findAioptOutputDir2(base);
+    const found = findAioptOutputDir2(process.cwd());
     await startDashboard2(found.cwd, { port: Number(opts.port || 3010) });
     return;
   }

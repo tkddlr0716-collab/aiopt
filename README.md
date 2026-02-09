@@ -26,14 +26,21 @@ Psychology (why teams actually use it):
 - **Immediate feedback:** PR checks + a clear verdict reduces decision fatigue.
 
 ## Fastest path (no docs)
-### 1) Open the dashboard
+### 1) Open the dashboard (recommended)
 ```bash
-npx --yes aiopt@latest dashboard --auto --port 3010
+npx --yes aiopt@latest dashboard --port 3010
 # open http://127.0.0.1:3010/
 ```
+This is **consistent**: it always uses a single global data folder (`~/.aiopt`).
+
 What happens automatically:
 - If `usage.jsonl` is missing, AIOpt **auto-collects** OpenClaw session usage (local-only).
 - If reports are missing, AIOpt **auto-runs** scan+guard once so the dashboard is never empty.
+
+Optional (project-local):
+```bash
+npx --yes aiopt@latest dashboard --auto --port 3010
+```
 
 ### 2) CI / PR gate (merge blocking)
 ```bash
