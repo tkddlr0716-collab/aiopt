@@ -10,10 +10,14 @@ export type Finding = {
 };
 
 function toUri(p: string) {
-  // SARIF expects file:// URIs for local paths
-  // Use path.resolve to normalize.
+  // Prefer repo-relative URIs so GitHub code scanning can map results reliably.
+  // If we can't compute relative, fall back to an absolute file:// URI.
+  try {
+    const rel = path.relative(process.cwd(), path.resolve(p)).replace(/\\/g, '/');
+    if (rel && !rel.startsWith('..')) return rel;
+  } catch {}
+
   const abs = path.resolve(p);
-  // Windows drive handling: file:///C:/...
   const u = abs.replace(/\\/g, '/');
   return u.match(/^[A-Za-z]:\//) ? `file:///${u}` : `file://${u}`;
 }

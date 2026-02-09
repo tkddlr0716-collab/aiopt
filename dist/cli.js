@@ -330,6 +330,11 @@ var init_code_scan = __esm({
 
 // src/sarif.ts
 function toUri(p) {
+  try {
+    const rel = import_path4.default.relative(process.cwd(), import_path4.default.resolve(p)).replace(/\\/g, "/");
+    if (rel && !rel.startsWith("..")) return rel;
+  } catch {
+  }
   const abs = import_path4.default.resolve(p);
   const u = abs.replace(/\\/g, "/");
   return u.match(/^[A-Za-z]:\//) ? `file:///${u}` : `file://${u}`;
