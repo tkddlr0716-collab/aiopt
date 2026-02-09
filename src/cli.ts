@@ -223,6 +223,32 @@ program
   });
 
 program
+  .command('fix')
+  .description('Auto-fix suggestions: generate aiopt.patch (and optionally apply it via git apply)')
+  .option('--out <dir>', 'output dir (default: ./aiopt-output)', DEFAULT_OUTPUT_DIR)
+  .option('--apply', 'apply the generated patch via git apply')
+  .action(async (opts) => {
+    const outDir = String(opts.out);
+    const { runFix } = await import('./fix');
+    const r = runFix(process.cwd(), { outDir, apply: Boolean(opts.apply) });
+    console.log(`Patch: ${r.patchPath}`);
+    if (r.changedFiles.length) {
+      console.log(`Files: ${r.changedFiles.slice(0, 10).join(', ')}${r.changedFiles.length > 10 ? ' ...' : ''}`);
+    } else {
+      console.log('No changes suggested.');
+    }
+    if (r.applied) {
+      console.log('OK: patch applied');
+      process.exit(0);
+    }
+    if (!r.ok) {
+      console.error(`FAIL: could not apply patch${r.hint ? ` (${r.hint})` : ''}`);
+      process.exit(1);
+    }
+    process.exit(0);
+  });
+
+program
   .command('guard')
   .description('Pre-deploy guardrail: compare baseline usage vs candidate change (or diff two log sets) and print warnings (exit codes 0/2/3)')
   .option('--input <path>', 'baseline usage jsonl/csv (legacy alias for --baseline; default: ./aiopt-output/usage.jsonl)', DEFAULT_INPUT)
