@@ -662,12 +662,38 @@ var require_package = __commonJS({
     module2.exports = {
       name: "aiopt",
       version: "0.3.10",
-      description: "Pre-deploy LLM cost accident guardrail (serverless local CLI)",
+      description: "Pre-deploy LLM cost accident guardrail (local CLI + CI)",
       bin: {
         aiopt: "dist/cli.js"
       },
       type: "commonjs",
       main: "dist/cli.js",
+      keywords: [
+        "ai",
+        "llm",
+        "openai",
+        "tokens",
+        "cost",
+        "cost-optimization",
+        "budget",
+        "finops",
+        "observability",
+        "guardrails",
+        "sarif",
+        "code-scanning",
+        "github-actions",
+        "ci",
+        "pre-deploy",
+        "cli"
+      ],
+      homepage: "https://github.com/tkddlr0716-collab/aiopt#readme",
+      repository: {
+        type: "git",
+        url: "git+https://github.com/tkddlr0716-collab/aiopt.git"
+      },
+      bugs: {
+        url: "https://github.com/tkddlr0716-collab/aiopt/issues"
+      },
       files: [
         "dist",
         "rates",
