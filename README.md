@@ -13,6 +13,11 @@ AIOpt is a **pre-deploy cost accident guardrail** for LLM changes.
 - candidate = estimated change (model/provider/context/output/retry/traffic deltas)
 - output = deterministic verdict + monthly impact estimate + confidence
 
+Common use cases:
+- “We changed prompts / model routing — are we about to ship a cost spike?”
+- “This PR increases tokens — show me the *why* and block if it breaks policy.”
+- “Give me a SARIF report so GitHub shows annotations in Code Scanning.”
+
 No server. No upload. No account. No payments inside the CLI.
 
 ## Why AIOpt exists
