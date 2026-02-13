@@ -708,7 +708,8 @@ var require_package = __commonJS({
         "test:npx:keep": `bash -lc 'set -euo pipefail; root="$(pwd)"; tmp="$(mktemp -d)"; echo "tmp=$tmp"; cd "$tmp"; npm pack --silent "$root" >/dev/null; tgz="$(ls -1 aiopt-*.tgz | tail -n 1)"; echo "tgz=$tgz"; npx --yes "./$tgz" install --force; npx --yes "./$tgz" doctor; npx --yes "./$tgz" scan; test -f ./aiopt-output/report.md; echo "OK (kept at $tmp)"'`,
         "test:guard": "npm run build --silent && node scripts/test-guard.js",
         "test:license": "npm run build --silent && node scripts/test-license.js",
-        "test:landing": "node scripts/test-landing.js"
+        "test:landing": "node scripts/test-landing.js",
+        "task:open": "node scripts/tasktracker-open.js"
       },
       dependencies: {
         commander: "^14.0.0",
