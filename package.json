@@ -48,7 +48,8 @@
 
     "test:guard": "npm run build --silent && node scripts/test-guard.js",
     "test:license": "npm run build --silent && node scripts/test-license.js",
-    "test:landing": "node scripts/test-landing.js"
+    "test:landing": "node scripts/test-landing.js",
+    "task:open": "node scripts/tasktracker-open.js"
   },
   "dependencies": {
     "commander": "^14.0.0",
