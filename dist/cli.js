@@ -709,7 +709,8 @@ var require_package = __commonJS({
         "test:guard": "npm run build --silent && node scripts/test-guard.js",
         "test:license": "npm run build --silent && node scripts/test-license.js",
         "test:landing": "node scripts/test-landing.js",
-        "task:open": "node scripts/tasktracker-open.js"
+        "task:open": "node scripts/tasktracker-open.js",
+        test: "npm run test:guard && npm run test:license && npm run test:landing"
       },
       dependencies: {
         commander: "^14.0.0",
