@@ -22,7 +22,16 @@ function isDoneStatus(status) {
 }
 
 (async () => {
-  const res = await fetch(url);
+  let res;
+  try {
+    res = await fetch(url);
+  } catch (err) {
+    console.error(`[tasktracker-open] Failed to fetch ${url}`);
+    console.error(`[tasktracker-open] ${err && err.message ? err.message : String(err)}`);
+    console.error('[tasktracker-open] Is TaskTracker running? (expected: http://localhost:3003/api/tasks)');
+    process.exit(2);
+  }
+
   if (!res.ok) {
     console.error(`[tasktracker-open] HTTP ${res.status} ${res.statusText}`);
     process.exit(2);
