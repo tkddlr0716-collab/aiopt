@@ -1884,7 +1884,7 @@ program.command("gate").description("Merge gate (CI-friendly): fail (exit 1) whe
         error: "input_not_found",
         message: `FAIL: input not found: ${preferredInput}`,
         tried: resolved.tried,
-        hint: "Run: aiopt dashboard (auto-collects OpenClaw usage) or pass --input <usage.jsonl>"
+        hint: "Run: aiopt scan --input <usage.jsonl> (or pass --input <usage.jsonl>)"
       }, null, 2));
     } else {
       console.error(`FAIL: input not found: ${preferredInput}`);

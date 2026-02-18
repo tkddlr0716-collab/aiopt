@@ -254,7 +254,7 @@ program
           error: 'input_not_found',
           message: `FAIL: input not found: ${preferredInput}`,
           tried: resolved.tried,
-          hint: 'Run: aiopt dashboard (auto-collects OpenClaw usage) or pass --input <usage.jsonl>'
+          hint: 'Run: aiopt scan --input <usage.jsonl> (or pass --input <usage.jsonl>)'
         }, null, 2));
       } else {
         console.error(`FAIL: input not found: ${preferredInput}`);
@@ -409,7 +409,7 @@ program
       console.log(r.message);
     }
 
-    // Persist last guard output + history for local dashboard / CI attachments
+    // Persist last guard output + history for local artifacts / CI attachments
     try {
       const outDir = path.resolve(DEFAULT_OUTPUT_DIR);
       fs.mkdirSync(outDir, { recursive: true });

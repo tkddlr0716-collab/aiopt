@@ -11,15 +11,15 @@ AIOpt turns your observed usage into a baseline, models candidate changes, and p
 
 - Local‑only by default (no server, no upload)
 - Works in CI (gate) and GitHub Code Scanning (SARIF)
-- Dashboard-first UX for fast sanity checks
+- Fast local reports (`scan`) + merge guardrails (`guard`/`gate`)
 
 Repo: https://github.com/tkddlr0716-collab/aiopt
 npm: https://www.npmjs.com/package/aiopt
 
 ## 3) Quickstart snippet
 ```bash
-npx --yes aiopt@latest dashboard --port 3010
-# open http://127.0.0.1:3010/
+npx --yes aiopt@latest scan
+# outputs: ./aiopt-output/report.md ./aiopt-output/report.json ./aiopt-output/aiopt.sarif
 ```
 
 ## 4) “Show HN” draft
@@ -50,7 +50,7 @@ I made AIOpt: a local CLI that turns observed usage into a baseline, estimates c
 It also emits SARIF so results show up as annotations in GitHub Code Scanning.
 
 Quickstart:
-`npx --yes aiopt@latest dashboard --port 3010`
+`npx --yes aiopt@latest scan`
 
 Repo: https://github.com/tkddlr0716-collab/aiopt
 
@@ -66,7 +66,6 @@ AIOpt v0.3.x
 - SARIF output for GitHub Code Scanning
 - CI gate command for merge blocking
 - Fix command that generates patches
-- Dashboard-first UX with auto-collect of local usage
 
 ## 8) Answer templates
 Q: “Does this send data anywhere?”

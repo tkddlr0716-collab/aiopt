@@ -10,7 +10,7 @@ Links:
 
 AIOpt is a **pre-deploy cost accident guardrail** for LLM changes.
 - baseline = your observed local usage log (`usage.jsonl` / `usage.csv`)
-- candidate = estimated change (model/provider/context/output/retry/traffic deltas)
+- candidate = estimated change (model/provider/context/output/retry/traffic deltas) or a second real log set (diff mode)
 - output = deterministic verdict + monthly impact estimate + confidence
 
 Common use cases:
@@ -25,30 +25,30 @@ LLM cost accidents don’t show up as obvious bugs. They show up as **quiet drif
 AIOpt makes cost visible **before merge** and gives you one place to sanity‑check usage.
 
 What you get:
-- A single **local dashboard** that is never empty (auto‑collects + auto‑reports).
 - A CI‑friendly **gate** that can block risky changes.
+- A deterministic local **scan** report (MD/JSON/SARIF).
 - A safe **fix** path (patch suggestions) when you do find waste.
 
-When teams keep it: it’s fast enough to run every day, and it reduces the “are we about to ship a cost spike?” anxiety to one screen.
-
 ## Fastest path (no docs)
-### 1) Open the dashboard (recommended)
+### 1) Generate a local report
 ```bash
-npx --yes aiopt@latest dashboard --port 3010
-# open http://127.0.0.1:3010/
+npx --yes aiopt@latest scan
 ```
-This is **consistent**: it always uses a single global data folder (`~/.aiopt`).
+Artifacts (default `./aiopt-output/`):
+- `report.md` / `report.json`
+- `aiopt.sarif` (PR annotations)
+- `patches/*` (suggestions)
 
-What happens automatically:
-- If `usage.jsonl` is missing, AIOpt **auto-collects** OpenClaw session usage (local-only).
-- If reports are missing, AIOpt **auto-runs** scan+guard once so the dashboard is never empty.
-
-Optional (project-local):
+### 2) Guard / budget check (exit 0/2/3)
 ```bash
-npx --yes aiopt@latest dashboard --auto --port 3010
+# transform mode (estimate candidate from baseline)
+npx --yes aiopt@latest guard --context-mult 1.2 --call-mult 3 --budget-monthly 200
+
+# diff mode (compare two real log sets)
+npx --yes aiopt@latest guard --baseline ./baseline.jsonl --candidate ./candidate.jsonl
 ```
 
-### 2) CI / PR gate (merge blocking)
+### 3) CI / PR gate (merge blocking)
 ```bash
 npx --yes aiopt@latest gate
 ```
@@ -56,99 +56,20 @@ npx --yes aiopt@latest gate
 - exit `1`: policy violations found (top3 file:line)
 
 ## AI-friendly (for coding agents)
-If you are an AI agent helping a developer:
-- Prefer running **dashboard first** to show a single truth surface.
-- Then use:
-  - `aiopt scan` to generate `report.json` / `report.md`
-  - `aiopt gate` to produce a merge decision (exit 0/1)
-  - `aiopt fix --apply` to propose safe patches (retry cap + cheap default model routing)
+Use:
+- `aiopt scan` to generate `report.json` / `report.md`
+- `aiopt gate` to produce a merge decision (exit 0/1)
+- `aiopt fix --apply` to propose safe patches (retry cap + cheap default model routing)
 
 Machine-readable outputs:
 - `aiopt-output/report.json` (stable summary)
 - `aiopt-output/aiopt.sarif` (PR annotations)
 - `aiopt-output/aiopt.patch` (autofix suggestions)
 
-
-## 3-line quickstart (Guardrail)
-```bash
-npx aiopt install --force
-# baseline: your existing usage log
-npx aiopt guard --context-mult 1.2 --call-mult 3 --budget-monthly 200
-```
-
-## 1-minute demo
-```bash
-npx aiopt quickstart --demo
-npx aiopt dashboard --port 3010
-# open http://127.0.0.1:3010/
-```
-
-Exit codes:
+## Exit codes (`guard`)
 - `0` OK
 - `2` WARN (cost accident possible)
 - `3` FAIL (merge-blocking)
-
-Common knobs (transform mode):
-- `--context-mult <n>` (prompt/context grows)
-- `--output-mult <n>` (output grows)
-- `--retries-delta <n>` (more retries/attempts)
-- `--call-mult <n>` (traffic spike / call volume)
-
-Budget gate:
-- `--budget-monthly <usd>` (FAIL if candidate monthly cost exceeds your budget)
-
-Diff mode (real before/after logs):
-```bash
-npx aiopt guard --baseline ./usage-baseline.jsonl --candidate ./usage-candidate.jsonl
-```
-
-Output includes a short **Top causes** summary (1–3) to explain the biggest drivers.
-In diff mode, it also prints **token deltas** and **top cost deltas** by model + feature.
-
-## CI integration (GitHub Actions)
-You can run `aiopt guard` in CI to catch accidental cost blow-ups before merge.
-
-### Diff mode (recommended)
-Compare two real log sets (no guesswork):
-```bash
-npx aiopt guard --baseline ./baseline.jsonl --candidate ./candidate.jsonl
-```
-Diff mode also prints:
-- token deltas (input/output)
-- top deltas by model and by feature
-
-### 1) Non-blocking (report only)
-```yaml
-- name: AI cost guard (non-blocking)
-  run: |
-    npx aiopt guard --input ./aiopt-output/usage.jsonl --context-mult 1.2 || true
-```
-
-### 2) Merge-blocking (fail on high risk)
-```yaml
-- name: AI cost guard (blocking)
-  run: |
-    npx aiopt guard --input ./aiopt-output/usage.jsonl --context-mult 1.2
-```
-
-Tip: print guard output into the GitHub Actions **Step Summary** so you don’t need to scroll logs.
-
-## Optional: local dashboard
-```bash
-npx aiopt dashboard --port 3010
-```
-- Binds to **127.0.0.1** (local-only)
-- Shows: guard verdict + guard history + 7-day cost trend (sparkline)
-
-## Optional: deeper local analysis (`scan`)
-`scan` generates a more detailed local report + patch stubs (still local-only).
-
-After `scan`, you will have:
-1) `./aiopt-output/analysis.json`
-2) `./aiopt-output/report.md`
-3) `./aiopt-output/report.json`
-4) `./aiopt-output/patches/*`
-5) `./aiopt-output/cost-policy.json`
 
 ## Input (default)
 - Default path: `./aiopt-output/usage.jsonl`
@@ -176,7 +97,6 @@ Optional:
 
 ## Known caveats
 - If your baseline log covers a very short `ts` span, confidence may be degraded (data quality).
-- The local dashboard binds to **127.0.0.1** only.
 - Local providers are assumed **$0** by default (infra cost not included).
 
 ## Docs

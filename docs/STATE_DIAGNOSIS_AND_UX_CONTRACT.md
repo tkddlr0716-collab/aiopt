@@ -16,8 +16,6 @@
 | `aiopt scan` | Analyze usage logs, generate report + policy + patch stubs | `--input <path>` (default `./aiopt-output/usage.jsonl`), `--out <dir>` (default `./aiopt-output`) | `aiopt-output/report.md`, `report.json`, `report.txt`, `analysis.json`, `cost-policy.json`, `patches/*` | `0` normally; `1` if input missing |
 | `aiopt policy` | Regenerate `cost-policy.json` | `--input`, `--out` | `aiopt-output/cost-policy.json` | `0` |
 | `aiopt guard` | Pre-deploy cost guardrail (transform or diff mode) | Transform: `--provider/--model/--context-mult/--output-mult/--retries-delta/--call-mult` + `--budget-monthly`<br>Diff: `--baseline <path> --candidate <path>` | stdout verdict; persists `aiopt-output/guard-last.{txt,json}` + `guard-history.jsonl` | `0` OK, `2` WARN, `3` FAIL |
-| `aiopt dashboard` | Local-only dashboard (binds 127.0.0.1) | `--port`, `--dir`, `--auto` | serves UI; reads files from `aiopt-output/` | `0` unless startup fails |
-| `aiopt quickstart --demo` | Demo: generate sample usage + run scan+guard (+ optional serve) | `--demo` (required), `--serve`, `--open`, `--port`, `--budget-monthly` | demo writes to `aiopt-output/*` and prints URL | exits with guard exit code |
 | `aiopt license activate/verify/status` | Offline signed license handling | `--out`, `--path` | `./aiopt/license.json` | `0/2/3` (varies per subcmd) |
 
 Notes:
