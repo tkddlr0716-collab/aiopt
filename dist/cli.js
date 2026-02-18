@@ -32,72 +32,6 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
   mod
 ));
-var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
-
-// src/io.ts
-var io_exports = {};
-__export(io_exports, {
-  ensureDir: () => ensureDir,
-  isCsvPath: () => isCsvPath,
-  readCsv: () => readCsv,
-  readJsonl: () => readJsonl
-});
-function ensureDir(p) {
-  import_fs.default.mkdirSync(p, { recursive: true });
-}
-function readJsonl(filePath) {
-  const raw = import_fs.default.readFileSync(filePath, "utf8");
-  const lines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
-  const out = [];
-  for (const line of lines) {
-    const obj = JSON.parse(line);
-    out.push(normalizeEvent(obj));
-  }
-  return out;
-}
-function readCsv(filePath) {
-  const raw = import_fs.default.readFileSync(filePath, "utf8");
-  const records = (0, import_sync.parse)(raw, { columns: true, skip_empty_lines: true, trim: true });
-  return records.map((r) => normalizeEvent(r));
-}
-function toNum(x, def = 0) {
-  const n = Number(x);
-  return Number.isFinite(n) ? n : def;
-}
-function normalizeEvent(x) {
-  const inputTokens = x.input_tokens ?? x.prompt_tokens;
-  const outputTokens = x.output_tokens ?? x.completion_tokens;
-  const featureTag = x.feature_tag ?? x?.meta?.feature_tag ?? x.endpoint ?? "";
-  const retries = x.retries ?? (x.attempt !== void 0 ? Math.max(0, toNum(x.attempt) - 1) : 0);
-  const billed = x.billed_cost ?? x.cost_usd;
-  return {
-    ts: String(x.ts ?? ""),
-    provider: String(x.provider ?? "").toLowerCase(),
-    model: String(x.model ?? ""),
-    input_tokens: toNum(inputTokens),
-    output_tokens: toNum(outputTokens),
-    feature_tag: String(featureTag ?? ""),
-    retries: toNum(retries),
-    status: String(x.status ?? ""),
-    billed_cost: billed === void 0 || billed === "" ? void 0 : toNum(billed),
-    trace_id: x.trace_id ? String(x.trace_id) : void 0,
-    request_id: x.request_id ? String(x.request_id) : void 0,
-    attempt: x.attempt === void 0 ? void 0 : toNum(x.attempt),
-    endpoint: x.endpoint ? String(x.endpoint) : void 0
-  };
-}
-function isCsvPath(p) {
-  return import_path.default.extname(p).toLowerCase() === ".csv";
-}
-var import_fs, import_path, import_sync;
-var init_io = __esm({
-  "src/io.ts"() {
-    "use strict";
-    import_fs = __toESM(require("fs"));
-    import_path = __toESM(require("path"));
-    import_sync = require("csv-parse/sync");
-  }
-});
 
 // src/cost.ts
 function getRates(rt, provider, model) {
@@ -1700,869 +1634,64 @@ var init_guard = __esm({
   }
 });
 
-// src/collect.ts
-function exists(p) {
-  try {
-    return import_fs11.default.existsSync(p);
-  } catch {
-    return false;
-  }
+// src/cli.ts
+var import_fs11 = __toESM(require("fs"));
+var import_path12 = __toESM(require("path"));
+var import_commander = require("commander");
+
+// src/io.ts
+var import_fs = __toESM(require("fs"));
+var import_path = __toESM(require("path"));
+var import_sync = require("csv-parse/sync");
+function ensureDir(p) {
+  import_fs.default.mkdirSync(p, { recursive: true });
 }
-function safeReadJsonl(p) {
+function readJsonl(filePath) {
+  const raw = import_fs.default.readFileSync(filePath, "utf8");
+  const lines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
   const out = [];
-  try {
-    const txt = import_fs11.default.readFileSync(p, "utf8");
-    for (const line of txt.split(/\r?\n/)) {
-      if (!line.trim()) continue;
-      try {
-        out.push(JSON.parse(line));
-      } catch {
-      }
-    }
-  } catch {
+  for (const line of lines) {
+    const obj = JSON.parse(line);
+    out.push(normalizeEvent(obj));
   }
   return out;
 }
-function listJsonlFiles(dir) {
-  const out = [];
-  try {
-    for (const name of import_fs11.default.readdirSync(dir)) {
-      const full = import_path12.default.join(dir, name);
-      let st;
-      try {
-        st = import_fs11.default.statSync(full);
-      } catch {
-        continue;
-      }
-      if (st.isFile() && name.endsWith(".jsonl")) out.push(full);
-    }
-  } catch {
-  }
-  return out;
+function readCsv(filePath) {
+  const raw = import_fs.default.readFileSync(filePath, "utf8");
+  const records = (0, import_sync.parse)(raw, { columns: true, skip_empty_lines: true, trim: true });
+  return records.map((r) => normalizeEvent(r));
 }
-function findOpenClawSessionLogs() {
-  const home = import_os3.default.homedir();
-  const root = import_path12.default.join(home, ".openclaw", "agents");
-  if (!exists(root)) return [];
-  const found = [];
-  let agents = [];
-  try {
-    agents = import_fs11.default.readdirSync(root);
-  } catch {
-    agents = [];
-  }
-  for (const a of agents) {
-    const sessDir = import_path12.default.join(root, a, "sessions");
-    if (!exists(sessDir)) continue;
-    for (const f of listJsonlFiles(sessDir)) found.push(f);
-  }
-  return found;
+function toNum(x, def = 0) {
+  const n = Number(x);
+  return Number.isFinite(n) ? n : def;
 }
-function parseOpenClawSessionFile(p) {
-  const rows = safeReadJsonl(p);
-  const events = [];
-  for (const r of rows) {
-    if (r && r.type === "message" && r.message && typeof r.message === "object") {
-      const m = r.message;
-      const u = m.usage;
-      if (!u) continue;
-      const input = Number(u.input ?? u.prompt ?? u.prompt_tokens ?? 0);
-      const output = Number(u.output ?? u.completion ?? u.completion_tokens ?? 0);
-      const costTotal = u.cost && typeof u.cost === "object" ? Number(u.cost.total ?? u.costTotal ?? u.cost_usd) : void 0;
-      let tsRaw = m.timestamp || r.timestamp || (/* @__PURE__ */ new Date()).toISOString();
-      let ts = String(tsRaw);
-      if (String(tsRaw).match(/^\d{10,}$/)) {
-        try {
-          ts = new Date(Number(tsRaw)).toISOString();
-        } catch {
-        }
-      }
-      const provider = String(m.provider || r.provider || "openclaw");
-      const model = String(m.model || r.modelId || "unknown");
-      if (!Number.isFinite(input) && !Number.isFinite(output) && !Number.isFinite(costTotal)) continue;
-      events.push({
-        ts,
-        provider,
-        model,
-        input_tokens: Number.isFinite(input) ? input : 0,
-        output_tokens: Number.isFinite(output) ? output : 0,
-        retries: 0,
-        status: "ok",
-        cost_usd: Number.isFinite(costTotal) ? Number(costTotal) : void 0,
-        meta: {
-          source: "openclaw-session",
-          session_file: p,
-          cache_read_tokens: u.cacheRead,
-          cache_write_tokens: u.cacheWrite,
-          total_tokens: u.totalTokens
-        }
-      });
-    }
-  }
-  return events;
+function normalizeEvent(x) {
+  const inputTokens = x.input_tokens ?? x.prompt_tokens;
+  const outputTokens = x.output_tokens ?? x.completion_tokens;
+  const featureTag = x.feature_tag ?? x?.meta?.feature_tag ?? x.endpoint ?? "";
+  const retries = x.retries ?? (x.attempt !== void 0 ? Math.max(0, toNum(x.attempt) - 1) : 0);
+  const billed = x.billed_cost ?? x.cost_usd;
+  return {
+    ts: String(x.ts ?? ""),
+    provider: String(x.provider ?? "").toLowerCase(),
+    model: String(x.model ?? ""),
+    input_tokens: toNum(inputTokens),
+    output_tokens: toNum(outputTokens),
+    feature_tag: String(featureTag ?? ""),
+    retries: toNum(retries),
+    status: String(x.status ?? ""),
+    billed_cost: billed === void 0 || billed === "" ? void 0 : toNum(billed),
+    trace_id: x.trace_id ? String(x.trace_id) : void 0,
+    request_id: x.request_id ? String(x.request_id) : void 0,
+    attempt: x.attempt === void 0 ? void 0 : toNum(x.attempt),
+    endpoint: x.endpoint ? String(x.endpoint) : void 0
+  };
 }
-function stableKey(e) {
-  return `${e.ts}|${e.provider}|${e.model}|${e.input_tokens}|${e.output_tokens}|${e.cost_usd ?? ""}`;
+function isCsvPath(p) {
+  return import_path.default.extname(p).toLowerCase() === ".csv";
 }
-function collectToUsageJsonl(outPath) {
-  const all = [];
-  const sources = [];
-  const ocFiles = findOpenClawSessionLogs();
-  let ocEvents = 0;
-  for (const f of ocFiles) {
-    const evs = parseOpenClawSessionFile(f);
-    ocEvents += evs.length;
-    all.push(...evs);
-  }
-  sources.push({ name: "openclaw", files: ocFiles.length, events: ocEvents });
-  const seen = /* @__PURE__ */ new Set();
-  const uniq = [];
-  for (const e of all) {
-    const k = stableKey(e);
-    if (seen.has(k)) continue;
-    seen.add(k);
-    uniq.push(e);
-  }
-  uniq.sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts));
-  import_fs11.default.mkdirSync(import_path12.default.dirname(outPath), { recursive: true });
-  const lines = uniq.map((e) => JSON.stringify(e)).join("\n") + (uniq.length ? "\n" : "");
-  import_fs11.default.writeFileSync(outPath, lines);
-  return { outPath, sources, eventsWritten: uniq.length };
-}
-var import_fs11, import_path12, import_os3;
-var init_collect = __esm({
-  "src/collect.ts"() {
-    "use strict";
-    import_fs11 = __toESM(require("fs"));
-    import_path12 = __toESM(require("path"));
-    import_os3 = __toESM(require("os"));
-  }
-});
-
-// src/dashboard.ts
-var dashboard_exports = {};
-__export(dashboard_exports, {
-  startDashboard: () => startDashboard
-});
-async function startDashboard(cwd, opts) {
-  const host = "127.0.0.1";
-  const port = opts.port || 3010;
-  const outDir = import_path13.default.join(cwd, "aiopt-output");
-  const file = (name) => import_path13.default.join(outDir, name);
-  let lastCollect = null;
-  let lastCollectError = null;
-  let lastAutoGen = null;
-  let lastAutoGenError = null;
-  function ensureUsageFile() {
-    try {
-      const usagePath = file("usage.jsonl");
-      if (import_fs12.default.existsSync(usagePath)) return;
-      const r = collectToUsageJsonl(usagePath);
-      lastCollect = { ts: (/* @__PURE__ */ new Date()).toISOString(), outPath: r.outPath, sources: r.sources, eventsWritten: r.eventsWritten };
-      lastCollectError = null;
-    } catch (e) {
-      lastCollectError = String(e?.message || e || "collect failed");
-    }
-  }
-  function loadRateTable2() {
-    const p = import_path13.default.join(__dirname, "..", "rates", "rate_table.json");
-    return JSON.parse(import_fs12.default.readFileSync(p, "utf8"));
-  }
-  function readEvents(usagePath) {
-    if (!import_fs12.default.existsSync(usagePath)) return [];
-    return isCsvPath(usagePath) ? readCsv(usagePath) : readJsonl(usagePath);
-  }
-  function ensureScanAndGuard() {
-    const did = [];
-    try {
-      const usagePath = file("usage.jsonl");
-      const rt = loadRateTable2();
-      const needScan = !import_fs12.default.existsSync(file("report.json")) || !import_fs12.default.existsSync(file("report.md"));
-      if (needScan) {
-        const events = readEvents(usagePath);
-        const { analysis, savings, policy, meta } = analyze(rt, events);
-        policy.generated_from.input = usagePath;
-        writeOutputs(outDir, analysis, savings, policy, { ...meta, cwd, cliVersion: "dashboard" });
-        did.push("scan");
-      }
-      const needGuard = !import_fs12.default.existsSync(file("guard-last.txt")) || !import_fs12.default.existsSync(file("guard-last.json"));
-      if (needGuard) {
-        const events = readEvents(usagePath);
-        const r = runGuard(rt, { baselineEvents: events, candidate: {} });
-        const ts = (/* @__PURE__ */ new Date()).toISOString();
-        import_fs12.default.writeFileSync(file("guard-last.txt"), r.message);
-        import_fs12.default.writeFileSync(file("guard-last.json"), JSON.stringify({ ts, exitCode: r.exitCode }, null, 2));
-        import_fs12.default.appendFileSync(file("guard-history.jsonl"), JSON.stringify({ ts, exitCode: r.exitCode, mode: "dashboard", baseline: usagePath, candidate: null }) + "\n");
-        did.push("guard");
-      }
-      if (did.length) lastAutoGen = { ts: (/* @__PURE__ */ new Date()).toISOString(), did };
-      lastAutoGenError = null;
-    } catch (e) {
-      lastAutoGenError = String(e?.message || e || "auto-gen failed");
-    }
-  }
-  ensureUsageFile();
-  ensureScanAndGuard();
-  function readOrNull(p) {
-    try {
-      if (!import_fs12.default.existsSync(p)) return null;
-      return import_fs12.default.readFileSync(p, "utf8");
-    } catch {
-      return null;
-    }
-  }
-  function statOrNull(p) {
-    try {
-      const st = import_fs12.default.statSync(p);
-      return { size: st.size, mtimeMs: st.mtimeMs };
-    } catch {
-      return null;
-    }
-  }
-  const indexHtml = `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>AIOpt Local Dashboard</title>
-  <style>
-    :root{
-      --bg:#070b16; --card:#0b1222; --card2:#0e1730; --txt:#e7eaf2; --muted:#a3acc2;
-      --border:rgba(255,255,255,.10);
-      --ok:#34d399; --warn:#fbbf24; --fail:#fb7185;
-      --shadow:0 18px 70px rgba(0,0,0,.35);
-    }
-    *{box-sizing:border-box}
-    body{margin:0; font-family: ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto; background:var(--bg); color:var(--txt)}
-    a{color:#bfffe3; text-decoration:none} a:hover{text-decoration:underline}
-    .wrap{max-width:1100px; margin:0 auto; padding:18px}
-    .top{display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap}
-    .h1{font-size:22px; font-weight:950; letter-spacing:-.02em}
-    .pill{display:inline-flex; align-items:center; gap:8px; padding:7px 10px; border-radius:999px; border:1px solid var(--border);
-      background:rgba(255,255,255,.03); color:var(--muted); font-size:12px; line-height:1}
-    .dot{width:8px;height:8px;border-radius:99px;background:linear-gradient(90deg,#60a5fa,#34d399)}
-
-    .grid{display:grid; grid-template-columns:repeat(12,1fr); gap:12px; margin-top:12px}
-    .card{grid-column: span 12; background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,0)), var(--card);
-      border:1px solid var(--border); border-radius:18px; padding:14px; box-shadow: var(--shadow)}
-    @media(min-width: 920px){
-      .c6{grid-column: span 6}
-      .c4{grid-column: span 4}
-      .c8{grid-column: span 8}
-    }
-
-    .k{padding:2px 6px; border-radius:8px; border:1px solid var(--border); font-family: ui-monospace; font-size:12px; color:#d7def2; background:rgba(255,255,255,.03)}
-    .muted{color:var(--muted)}
-    .row{display:flex; gap:10px; flex-wrap:wrap; align-items:center}
-
-    .badge{display:inline-flex; align-items:center; gap:8px; padding:8px 10px; border-radius:14px; border:1px solid var(--border);
-      background:rgba(255,255,255,.03); font-weight:900}
-    .badge.ok{border-color:rgba(52,211,153,.35)}
-    .badge.warn{border-color:rgba(251,191,36,.35)}
-    .badge.fail{border-color:rgba(251,113,133,.35)}
-    .badge .b{width:10px;height:10px;border-radius:99px}
-    .badge.ok .b{background:var(--ok)}
-    .badge.warn .b{background:var(--warn)}
-    .badge.fail .b{background:var(--fail)}
-
-    pre{margin:0; white-space:pre-wrap; word-break:break-word; background: rgba(3,6,14,.65);
-      border:1px solid rgba(255,255,255,.12);
-      padding:12px; border-radius:14px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono"; font-size:13px; line-height:1.55}
-
-    .bars{display:flex; flex-direction:column; gap:8px; margin-top:8px}
-    .bar{display:grid; grid-template-columns: 1fr 64px; gap:10px; align-items:center}
-    .track{height:10px; border-radius:999px; background:rgba(255,255,255,.08); overflow:hidden; border:1px solid rgba(255,255,255,.10)}
-    .fill{height:100%; border-radius:999px; background:linear-gradient(90deg,#60a5fa,#34d399)}
-    .label{font-size:13px}
-    .val{font-family: ui-monospace; font-size:12px; color:#d7def2; text-align:right}
-
-    .mini{font-size:12px; color:var(--muted)}
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <div class="top">
-      <div>
-        <div class="h1">AIOpt Local Dashboard</div>
-        <div class="mini" id="baseDir">base: \u2014</div>
-        <div class="mini" id="missingHint" style="margin-top:4px">checking files\u2026</div>
-      </div>
-      <div class="pill"><span class="dot"></span> local-only \xB7 reads <span class="k">./aiopt-output</span> \xB7 <span id="live" class="muted">live: off</span>
-        <span class="muted">\xB7</span>
-        <button id="btnRefresh" style="all:unset; cursor:pointer; padding:2px 8px; border:1px solid rgba(255,255,255,.16); border-radius:999px; background:rgba(255,255,255,.04); font-size:12px">Refresh</button>
-        <button id="btnLive" style="all:unset; cursor:pointer; padding:2px 8px; border:1px solid rgba(255,255,255,.16); border-radius:999px; background:rgba(255,255,255,.04); font-size:12px">Live: Off</button>
-        <span class="muted">\xB7</span>
-        <a href="https://github.com/tkddlr0716-collab/aiopt/issues/new?template=dashboard_feedback.yml" target="_blank">Feedback</a>
-      </div>
-    </div>
-
-    <div class="grid">
-      <div class="card c6">
-        <div class="row" style="justify-content:space-between">
-          <div style="font-weight:950">Guard verdict</div>
-          <div class="mini" id="guardMeta">\u2014</div>
-        </div>
-        <div style="height:8px"></div>
-        <div id="guardBadge" class="badge"><span class="b"></span><span id="guardBadgeText">loading\u2026</span></div>
-        <div style="height:10px"></div>
-        <pre id="guard">loading\u2026 (if this stays, it usually means required files are missing \u2014 see the top \u201Cmissing\u201D line)</pre>
-        <div style="height:10px"></div>
-        <div class="row">
-          <a href="/api/guard-last.txt" target="_blank">raw txt</a>
-          <span class="muted">\xB7</span>
-          <a href="/api/guard-last.json" target="_blank">raw json</a>
-          <span class="muted">\xB7</span>
-          <a href="/api/guard-history.jsonl" target="_blank">history</a>
-        </div>
-
-        <div style="height:12px"></div>
-        <div style="font-weight:900">Recent guard runs</div>
-        <pre id="guardHist" style="max-height:220px; overflow:auto">loading\u2026</pre>
-        <div class="mini" style="margin-top:8px">
-          Quick actions (copy/paste):
-          <div style="margin-top:6px; display:flex; flex-wrap:wrap; gap:8px">
-            <span class="k">aiopt quickstart --demo</span>
-            <span class="k">aiopt guard --help</span>
-            <span class="k">aiopt scan</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="card c6">
-        <div class="row" style="justify-content:space-between">
-          <div style="font-weight:950">Scan summary</div>
-          <div class="mini"><a href="/api/report.json" target="_blank">report.json</a> \xB7 <a href="/api/report.md" target="_blank">report.md</a></div>
-        </div>
-        <div style="height:8px"></div>
-        <div class="row">
-          <div class="badge" id="totalCostBadge"><span class="b" style="background:#60a5fa"></span><span id="totalCost">total: \u2014</span></div>
-          <div class="badge" id="savingsBadge"><span class="b" style="background:#a78bfa"></span><span id="savings">savings: \u2014</span></div>
-        </div>
-
-        <div style="height:12px"></div>
-        <div class="row" style="justify-content:space-between">
-          <div style="font-weight:900">Live usage (last 60m)</div>
-          <div class="mini"><a href="/api/usage.jsonl" target="_blank">usage.jsonl</a></div>
-        </div>
-        <div id="liveSvg" style="margin-top:8px"></div>
-        <pre id="liveText" style="margin-top:8px">loading\u2026</pre>
-
-        <div style="height:12px"></div>
-        <div class="row" style="justify-content:space-between">
-          <div style="font-weight:900">Cost trend (last 7d)</div>
-          <div class="mini">(from usage.jsonl)</div>
-        </div>
-        <div id="trendSvg" style="margin-top:8px"></div>
-        <pre id="trend" style="margin-top:8px">loading\u2026</pre>
-
-        <div style="height:12px"></div>
-        <div style="font-weight:900">Cost by model</div>
-        <div id="byModel" class="bars"></div>
-
-        <div style="height:12px"></div>
-        <div style="font-weight:900">Cost by feature</div>
-        <div id="byFeature" class="bars"></div>
-
-        <div style="height:10px"></div>
-        <div class="mini" id="scanMeta">\u2014</div>
-      </div>
-
-      <div class="card">
-        <div class="row" style="justify-content:space-between">
-          <div style="font-weight:950">Latest report.md</div>
-          <div class="mini">Tip: run <span class="k">aiopt scan</span> after collecting baseline</div>
-        </div>
-        <div style="height:8px"></div>
-        <pre id="scan">loading\u2026</pre>
-      </div>
-    </div>
-  </div>
-
-<script>
-function money(x){
-  if (x === null || x === undefined || Number.isNaN(Number(x))) return '\u2014';
-  return '$' + (Math.round(Number(x)*100)/100);
-}
-function renderBars(el, items){
-  el.innerHTML='';
-  if(!items || items.length===0){ el.innerHTML='<div class="mini">(no data)</div>'; return; }
-  const max = Math.max(...items.map(i=>Number(i.cost)||0), 0.000001);
-  for(const it of items.slice(0,8)){
-    const w = Math.max(2, Math.round(((Number(it.cost)||0)/max)*100));
-    const row = document.createElement('div');
-    row.className='bar';
-    row.innerHTML =
-      '<div>'+
-        '<div class="label">'+ String(it.key) +'</div>'+
-        '<div class="track"><div class="fill" style="width:'+ w +'%"></div></div>'+
-      '</div>'+
-      '<div class="val">'+ money(it.cost) +'</div>';
-    el.appendChild(row);
-  }
-}
-
-let __live = false;
-let __tick = 0;
-
-async function load(){
-  __tick++;
-  // If fetch hangs / fails, do not leave \u201Cloading\u2026\u201D forever.
-  const timer = setTimeout(()=>{
-    const el = document.getElementById('missingHint');
-    if(el && el.textContent && el.textContent.includes('checking')){
-      el.textContent = 'still loading\u2026 (if this does not change, refresh. If it persists: run aiopt quickstart --demo or aiopt scan)';
-    }
-  }, 1500);
-
-  let meta = null;
-  try{
-    meta = await fetch('/api/_meta', { cache: 'no-store' }).then(r=>r.ok?r.json():null);
-  }catch{}
-  clearTimeout(timer);
-
-  if(meta && meta.baseDir){
-    document.getElementById('baseDir').textContent = 'base: ' + meta.baseDir;
-  }
-
-  const miss = (meta && meta.missing) ? meta.missing : null;
-  const hint = document.getElementById('missingHint');
-  if(miss && miss.length){
-    hint.textContent = 'missing: ' + miss.join(', ') + '  \u2192 not broken. Run: aiopt quickstart --demo (or aiopt scan)';
-  } else if(miss && miss.length===0){
-    hint.textContent = 'missing: (none)';
-  } else {
-    hint.textContent = 'missing: (unknown \u2014 failed to load /api/_meta)';
-  }
-
-  const guardTxt = await fetch('/api/guard-last.txt', { cache: 'no-store' }).then(r=>r.ok?r.text():null).catch(()=>null);
-  const guardMeta = await fetch('/api/guard-last.json', { cache: 'no-store' }).then(r=>r.ok?r.json():null).catch(()=>null);
-
-  document.getElementById('guard').textContent = guardTxt || '(no guard-last.txt yet \u2014 run: aiopt guard)';
-  if(guardMeta){
-    document.getElementById('guardMeta').textContent = 'exit=' + guardMeta.exitCode + ' \xB7 ' + guardMeta.ts;
-    const badge = document.getElementById('guardBadge');
-    const t = document.getElementById('guardBadgeText');
-    const code = Number(guardMeta.exitCode);
-    badge.classList.remove('ok','warn','fail');
-    if(code===0){badge.classList.add('ok'); t.textContent='OK (0)';}
-    else if(code===2){badge.classList.add('warn'); t.textContent='WARN (2)';}
-    else {badge.classList.add('fail'); t.textContent='FAIL (3)';}
-  }
-
-  const histTxt = await fetch('/api/guard-history.jsonl', { cache: 'no-store' }).then(r=>r.ok?r.text():null).catch(()=>null);
-  if(histTxt){
-    const NL = String.fromCharCode(10);
-    const lines = histTxt.trim().split(NL).filter(Boolean).slice(-15).reverse();
-    const pretty = [];
-    for(const l of lines){
-      try{
-        const j = JSON.parse(l);
-        const code = Number(j.exitCode);
-        const badge = (code===0?'OK':(code===2?'WARN':'FAIL'));
-        const mode = j.mode || '\u2014';
-        const ts = (j.ts || '').replace('T',' ').replace('Z','');
-        pretty.push(badge.padEnd(5) + ' ' + mode.padEnd(9) + ' ' + ts);
-      }catch{pretty.push(l)}
-    }
-    document.getElementById('guardHist').textContent = pretty.join(NL);
-  } else {
-    document.getElementById('guardHist').textContent = '(no guard-history.jsonl yet \u2014 run: aiopt guard)';
-  }
-
-  const reportJson = await fetch('/api/report.json', { cache: 'no-store' }).then(r=>r.ok?r.json():null).catch(()=>null);
-  if(reportJson){
-    const total = reportJson.summary && reportJson.summary.total_cost_usd;
-    const sav = reportJson.summary && reportJson.summary.estimated_savings_usd;
-    document.getElementById('totalCost').textContent = 'total: ' + money(total);
-
-    // UX: if savings is ~0, explicitly say it's normal (not broken).
-    const sNum = Number(sav || 0);
-    const savingsText = (Number.isFinite(sNum) && sNum <= 0.01)
-      ? 'savings: $0 (no obvious waste found)'
-      : ('savings: ' + money(sav));
-    document.getElementById('savings').textContent = savingsText;
-    renderBars(document.getElementById('byModel'), reportJson.top && reportJson.top.by_model);
-    renderBars(document.getElementById('byFeature'), reportJson.top && reportJson.top.by_feature);
-    document.getElementById('scanMeta').textContent = 'confidence=' + (reportJson.confidence || '\u2014') + ' \xB7 generated_at=' + (reportJson.generated_at || '\u2014');
-  } else {
-    document.getElementById('scanMeta').textContent = '(no report.json yet \u2014 run: aiopt scan)';
-  }
-
-  // Use computed JSON endpoints to avoid downloading/parsing huge usage.jsonl in the browser.
-  const live60 = await fetch('/api/live-60m.json', { cache: 'no-store' }).then(r=>r.ok?r.json():null).catch(()=>null);
-  const sum7d = await fetch('/api/usage-summary.json', { cache: 'no-store' }).then(r=>r.ok?r.json():null).catch(()=>null);
-
-  if(live60 && live60.bins){
-    const pts = (live60.bins || []).slice().reverse();
-    const W=520, H=120, P=12;
-    const max = Math.max(...pts.map(b=>Number(b.cost)||0), 0.000001);
-    const xs = pts.map((_,i)=> P + (i*(W-2*P))/59);
-    const ys = pts.map(b=> H-P - (((Number(b.cost)||0)/max)*(H-2*P)) );
-    let d = '';
-    for(let i=0;i<xs.length;i++) d += (i===0?'M':'L') + xs[i].toFixed(1)+','+ys[i].toFixed(1)+' ';
-    const area = 'M'+xs[0].toFixed(1)+','+(H-P).toFixed(1)+' ' + d + 'L'+xs[xs.length-1].toFixed(1)+','+(H-P).toFixed(1)+' Z';
-    const svg =
-      '<svg viewBox="0 0 '+W+' '+H+'" width="100%" height="'+H+'" xmlns="http://www.w3.org/2000/svg" style="background:rgba(255,255,255,.02); border:1px solid rgba(255,255,255,.10); border-radius:14px">'+
-        '<path d="'+area+'" fill="rgba(167,139,250,.10)" />'+
-        '<path d="'+d+'" fill="none" stroke="rgba(167,139,250,.95)" stroke-width="2" />'+
-        '<text x="'+P+'" y="'+(P+10)+'" fill="rgba(229,231,235,.75)" font-size="11">max/min '+money(max)+'</text>'+
-      '</svg>';
-    document.getElementById('liveSvg').innerHTML = svg;
-
-    const rows = pts.slice(-10).map((b,idx)=>{
-      const mAgo = 9-idx;
-      const label = (mAgo===0 ? 'now' : (mAgo+'m'));
-      const dollars = ('$' + (Math.round((Number(b.cost)||0)*100)/100).toFixed(2));
-      return String(label).padEnd(5) + ' ' + String(dollars).padStart(9) + '  (' + (b.calls||0) + ' calls)';
-    });
-    document.getElementById('liveText').textContent = rows.join(String.fromCharCode(10));
-
-    const liveEl = document.getElementById('live');
-    if(liveEl){
-      liveEl.textContent = 'live: on \xB7 last60m ' + money(live60.totalCostUsd || 0);
-    }
-  } else {
-    document.getElementById('liveText').textContent = '(no live data yet)';
-    document.getElementById('liveSvg').innerHTML = '';
-  }
-
-  if(sum7d && sum7d.dayBins){
-    const bins = sum7d.dayBins || [];
-    const W=520, H=120, P=12;
-    const pts = bins.slice().reverse();
-    const max = Math.max(...pts.map(b=>Number(b.cost)||0), 0.000001);
-    const xs = pts.map((_,i)=> P + (i*(W-2*P))/6);
-    const ys = pts.map(b=> H-P - (((Number(b.cost)||0)/max)*(H-2*P)) );
-    let d = '';
-    for(let i=0;i<xs.length;i++) d += (i===0?'M':'L') + xs[i].toFixed(1)+','+ys[i].toFixed(1)+' ';
-    const area = 'M'+xs[0].toFixed(1)+','+(H-P).toFixed(1)+' ' + d + 'L'+xs[xs.length-1].toFixed(1)+','+(H-P).toFixed(1)+' Z';
-    const circles = xs.map((x,i)=>'<circle cx="'+x.toFixed(1)+'" cy="'+ys[i].toFixed(1)+'" r="2.6" fill="rgba(52,211,153,.9)"/>').join('');
-    const svg =
-      '<svg viewBox="0 0 '+W+' '+H+'" width="100%" height="'+H+'" xmlns="http://www.w3.org/2000/svg" style="background:rgba(255,255,255,.02); border:1px solid rgba(255,255,255,.10); border-radius:14px">'+
-        '<path d="'+area+'" fill="rgba(96,165,250,.12)" />'+
-        '<path d="'+d+'" fill="none" stroke="rgba(96,165,250,.95)" stroke-width="2" />'+
-        circles+
-        '<text x="'+P+'" y="'+(P+10)+'" fill="rgba(229,231,235,.75)" font-size="11">max '+money(max)+'</text>'+
-      '</svg>';
-    document.getElementById('trendSvg').innerHTML = svg;
-
-    const rows = pts.map((b,idx)=>{
-      const label = (idx===pts.length-1 ? 'd-6' : (idx===0 ? 'today' : ('d-'+idx)));
-      const dollars = ('$' + (Math.round((Number(b.cost)||0)*100)/100).toFixed(2));
-      return String(label).padEnd(7) + ' ' + String(dollars).padStart(9) + '  (' + (b.calls||0) + ' calls)';
-    });
-    document.getElementById('trend').textContent = rows.join(String.fromCharCode(10));
-  } else {
-    document.getElementById('trend').textContent = '(no 7d data yet)';
-    document.getElementById('trendSvg').innerHTML = '';
-  }
-
-  const reportMd = await fetch('/api/report.md').then(r=>r.ok?r.text():null).catch(()=>null);
-  document.getElementById('scan').textContent = reportMd || '(no report.md yet \u2014 run: aiopt scan)';
-}
-
-// Default: no auto-refresh (resource-friendly). User can refresh on demand.
-let liveTimer = null;
-
-function setLive(on){
-  const btn = document.getElementById('btnLive');
-  const liveEl = document.getElementById('live');
-  if(!btn || !liveEl) return;
-
-  if(on){
-    btn.textContent = 'Live: On';
-    liveEl.textContent = 'live: on';
-    if(liveTimer) clearInterval(liveTimer);
-    liveTimer = setInterval(()=>{ load(); }, 5000);
-  } else {
-    btn.textContent = 'Live: Off';
-    liveEl.textContent = 'live: off';
-    if(liveTimer) clearInterval(liveTimer);
-    liveTimer = null;
-  }
-}
-
-document.getElementById('btnRefresh')?.addEventListener('click', ()=>{ load(); });
-document.getElementById('btnLive')?.addEventListener('click', ()=>{
-  const on = !liveTimer;
-  setLive(on);
-  load();
-});
-
-setLive(false);
-load();
-</script>
-</body>
-</html>`;
-  const server = import_http.default.createServer((req, res) => {
-    const url = req.url || "/";
-    if (url === "/" || url === "/index.html") {
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      res.end(indexHtml);
-      return;
-    }
-    if (url.startsWith("/api/")) {
-      const name = url.replace("/api/", "");
-      if (name === "_meta") {
-        ensureUsageFile();
-        ensureScanAndGuard();
-        const expected = ["guard-last.txt", "guard-last.json", "report.json", "report.md", "usage.jsonl", "guard-history.jsonl"];
-        const missing = expected.filter((f) => !import_fs12.default.existsSync(file(f)));
-        res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
-        res.end(JSON.stringify({ baseDir: cwd, outDir, missing, collect: lastCollect, collectError: lastCollectError, autoGen: lastAutoGen, autoGenError: lastAutoGenError }, null, 2));
-        return;
-      }
-      const allow = /* @__PURE__ */ new Set([
-        "guard-last.txt",
-        "guard-last.json",
-        "guard-history.jsonl",
-        "report.md",
-        "report.json",
-        "usage.jsonl",
-        "usage-summary.json",
-        "live-60m.json"
-      ]);
-      if (name === "usage.jsonl" || name === "usage-summary.json" || name === "live-60m.json") ensureUsageFile();
-      if (name === "report.json" || name === "report.md" || name === "guard-last.txt" || name === "guard-last.json" || name === "guard-history.jsonl") ensureScanAndGuard();
-      if (!allow.has(name)) {
-        res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
-        res.end("not found");
-        return;
-      }
-      if (name === "live-60m.json" || name === "usage-summary.json") {
-        const usagePath = file("usage.jsonl");
-        const st = statOrNull(usagePath);
-        if (!st) {
-          res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
-          res.end("missing");
-          return;
-        }
-        globalThis.__aioptDashCache = globalThis.__aioptDashCache || {};
-        const cache = globalThis.__aioptDashCache;
-        if (!cache.usage || cache.usage.mtimeMs !== st.mtimeMs) {
-          const txt2 = import_fs12.default.readFileSync(usagePath, "utf8");
-          const now = Date.now();
-          const liveBins = Array.from({ length: 60 }, () => ({ cost: 0, calls: 0 }));
-          const dayBins = Array.from({ length: 7 }, () => ({ cost: 0, calls: 0 }));
-          for (const line of txt2.split(/\r?\n/)) {
-            if (!line.trim()) continue;
-            try {
-              const ev = JSON.parse(line);
-              const t = Date.parse(ev.ts);
-              if (!Number.isFinite(t)) continue;
-              const cost = Number(ev.cost_usd);
-              const c = Number.isFinite(cost) ? cost : 0;
-              const dm = Math.floor((now - t) / 6e4);
-              if (dm >= 0 && dm < 60) {
-                liveBins[dm].calls += 1;
-                liveBins[dm].cost += c;
-              }
-              const dd = Math.floor((now - t) / 864e5);
-              if (dd >= 0 && dd < 7) {
-                dayBins[dd].calls += 1;
-                dayBins[dd].cost += c;
-              }
-            } catch {
-            }
-          }
-          cache.usage = {
-            mtimeMs: st.mtimeMs,
-            live60m: {
-              bins: liveBins,
-              totalCostUsd: Math.round(liveBins.reduce((a, b) => a + b.cost, 0) * 100) / 100
-            },
-            summary7d: {
-              dayBins
-            }
-          };
-        }
-        const body = name === "live-60m.json" ? cache.usage.live60m : cache.usage.summary7d;
-        res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
-        res.end(JSON.stringify(body, null, 2));
-        return;
-      }
-      const p = file(name);
-      const txt = readOrNull(p);
-      if (txt === null) {
-        res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
-        res.end("missing");
-        return;
-      }
-      const ct = name.endsWith(".json") ? "application/json; charset=utf-8" : "text/plain; charset=utf-8";
-      res.writeHead(200, { "content-type": ct, "cache-control": "no-store" });
-      res.end(txt);
-      return;
-    }
-    res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
-    res.end("not found");
-  });
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(port, host, () => resolve());
-  });
-  console.log(`OK: dashboard http://${host}:${port}/`);
-  console.log("Tip: run `aiopt guard ...` and `aiopt scan` to populate aiopt-output files.");
-  await new Promise(() => {
-  });
-}
-var import_http, import_fs12, import_path13;
-var init_dashboard = __esm({
-  "src/dashboard.ts"() {
-    "use strict";
-    import_http = __toESM(require("http"));
-    import_fs12 = __toESM(require("fs"));
-    import_path13 = __toESM(require("path"));
-    init_collect();
-    init_scan();
-    init_io();
-    init_guard();
-  }
-});
-
-// src/find-output.ts
-var find_output_exports = {};
-__export(find_output_exports, {
-  findAioptOutputDir: () => findAioptOutputDir
-});
-function findAioptOutputDir(startCwd) {
-  let cur = import_path14.default.resolve(startCwd);
-  while (true) {
-    const outDir = import_path14.default.join(cur, "aiopt-output");
-    if (import_fs13.default.existsSync(outDir)) {
-      try {
-        if (import_fs13.default.statSync(outDir).isDirectory()) return { cwd: cur, outDir };
-      } catch {
-      }
-    }
-    const parent = import_path14.default.dirname(cur);
-    if (parent === cur) break;
-    cur = parent;
-  }
-  try {
-    const base = import_path14.default.resolve(startCwd);
-    const children = import_fs13.default.readdirSync(base, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => import_path14.default.join(base, d.name));
-    for (const child of children) {
-      const outDir = import_path14.default.join(child, "aiopt-output");
-      if (import_fs13.default.existsSync(outDir)) {
-        try {
-          if (import_fs13.default.statSync(outDir).isDirectory()) return { cwd: child, outDir };
-        } catch {
-        }
-      }
-    }
-  } catch {
-  }
-  return { cwd: import_path14.default.resolve(startCwd), outDir: import_path14.default.join(import_path14.default.resolve(startCwd), "aiopt-output") };
-}
-var import_fs13, import_path14;
-var init_find_output = __esm({
-  "src/find-output.ts"() {
-    "use strict";
-    import_fs13 = __toESM(require("fs"));
-    import_path14 = __toESM(require("path"));
-  }
-});
-
-// src/rates-util.ts
-function loadRateTableFromDistPath() {
-  const p = import_path15.default.join(__dirname, "..", "rates", "rate_table.json");
-  return JSON.parse(import_fs14.default.readFileSync(p, "utf8"));
-}
-var import_fs14, import_path15;
-var init_rates_util = __esm({
-  "src/rates-util.ts"() {
-    "use strict";
-    import_fs14 = __toESM(require("fs"));
-    import_path15 = __toESM(require("path"));
-  }
-});
-
-// src/quickstart.ts
-var quickstart_exports = {};
-__export(quickstart_exports, {
-  runQuickstart: () => runQuickstart,
-  seedDemoUsage: () => seedDemoUsage
-});
-function seedDemoUsage(outDir) {
-  import_fs15.default.mkdirSync(outDir, { recursive: true });
-  const p = import_path16.default.join(outDir, "usage.jsonl");
-  const now = Date.now();
-  const lines = [];
-  for (let i = 0; i < 60; i++) {
-    lines.push({
-      ts: new Date(now - i * 6e4).toISOString(),
-      provider: "openai",
-      model: i % 4 === 0 ? "gpt-5.2" : "gpt-5-mini",
-      endpoint: "responses",
-      attempt: 1,
-      trace_id: "demo-" + i,
-      status: "ok",
-      prompt_tokens: 1e4 + i % 10 * 1e3,
-      completion_tokens: 1200 + i % 5 * 200,
-      meta: { feature_tag: i % 2 ? "summarize" : "coding" }
-    });
-  }
-  import_fs15.default.writeFileSync(p, lines.map((x) => JSON.stringify(x)).join("\n") + "\n");
-  return p;
-}
-function runQuickstart(cwd, opts) {
-  const outDir = import_path16.default.join(cwd, "aiopt-output");
-  const usagePath = seedDemoUsage(outDir);
-  const rt = loadRateTableFromDistPath();
-  const { readJsonl: readJsonl2 } = (init_io(), __toCommonJS(io_exports));
-  const events = readJsonl2(usagePath);
-  const { analysis, savings, policy, meta } = analyze(rt, events);
-  import_fs15.default.writeFileSync(import_path16.default.join(outDir, "analysis.json"), JSON.stringify(analysis, null, 2));
-  import_fs15.default.writeFileSync(import_path16.default.join(outDir, "report.json"), JSON.stringify({
-    version: 3,
-    generated_at: (/* @__PURE__ */ new Date()).toISOString(),
-    confidence: analysis.unknown_models?.length ? "MEDIUM" : "HIGH",
-    warnings: [],
-    assumptions: { quickstart: true },
-    summary: {
-      total_cost_usd: analysis.total_cost,
-      estimated_savings_usd: savings.estimated_savings_total,
-      routing_savings_usd: savings.routing_savings,
-      context_savings_usd: savings.context_savings,
-      retry_waste_usd: savings.retry_waste
-    },
-    top: {
-      by_model: analysis.by_model_top,
-      by_feature: analysis.by_feature_top
-    },
-    unknown_models: analysis.unknown_models || [],
-    notes: []
-  }, null, 2));
-  import_fs15.default.writeFileSync(import_path16.default.join(outDir, "cost-policy.json"), JSON.stringify(policy, null, 2));
-  import_fs15.default.writeFileSync(import_path16.default.join(outDir, "report.md"), "# AIOpt quickstart demo\n\nThis is a demo report generated by `aiopt quickstart --demo`.\n");
-  const r = runGuard(rt, {
-    baselineEvents: events,
-    candidate: {
-      contextMultiplier: 1.2,
-      callMultiplier: 5,
-      budgetMonthlyUsd: opts.budgetMonthlyUsd
-    }
-  });
-  return { usagePath, outDir, guard: r, port: opts.port };
-}
-var import_fs15, import_path16;
-var init_quickstart = __esm({
-  "src/quickstart.ts"() {
-    "use strict";
-    import_fs15 = __toESM(require("fs"));
-    import_path16 = __toESM(require("path"));
-    init_scan();
-    init_rates_util();
-    init_guard();
-  }
-});
 
 // src/cli.ts
-var import_fs16 = __toESM(require("fs"));
-var import_path17 = __toESM(require("path"));
-var import_commander = require("commander");
-init_io();
 init_scan();
 
 // src/usage-path.ts
@@ -2596,17 +1725,17 @@ var program = new import_commander.Command();
 var DEFAULT_INPUT = "./aiopt-output/usage.jsonl";
 var DEFAULT_OUTPUT_DIR = "./aiopt-output";
 function loadRateTable() {
-  const p = import_path17.default.join(__dirname, "..", "rates", "rate_table.json");
-  return JSON.parse(import_fs16.default.readFileSync(p, "utf8"));
+  const p = import_path12.default.join(__dirname, "..", "rates", "rate_table.json");
+  return JSON.parse(import_fs11.default.readFileSync(p, "utf8"));
 }
 program.name("aiopt").description("AI \uBE44\uC6A9 \uC790\uB3D9 \uC808\uAC10 \uC778\uD504\uB77C \u2014 \uC11C\uBC84 \uC5C6\uB294 \uB85C\uCEEC CLI MVP").version(require_package().version);
 program.command("init").description("aiopt-input/ \uBC0F \uC0D8\uD50C usage.jsonl, aiopt-output/ \uC0DD\uC131").action(() => {
   ensureDir("./aiopt-input");
   ensureDir("./aiopt-output");
-  const sampleSrc = import_path17.default.join(__dirname, "..", "samples", "sample_usage.jsonl");
-  const dst = import_path17.default.join("./aiopt-input", "usage.jsonl");
-  if (!import_fs16.default.existsSync(dst)) {
-    import_fs16.default.copyFileSync(sampleSrc, dst);
+  const sampleSrc = import_path12.default.join(__dirname, "..", "samples", "sample_usage.jsonl");
+  const dst = import_path12.default.join("./aiopt-input", "usage.jsonl");
+  if (!import_fs11.default.existsSync(dst)) {
+    import_fs11.default.copyFileSync(sampleSrc, dst);
     console.log("Created ./aiopt-input/usage.jsonl (sample)");
   } else {
     console.log("Exists ./aiopt-input/usage.jsonl (skip)");
@@ -2616,7 +1745,7 @@ program.command("init").description("aiopt-input/ \uBC0F \uC0D8\uD50C usage.json
 program.command("scan").description("\uC785\uB825 \uB85C\uADF8(JSONL/CSV)\uB97C \uBD84\uC11D\uD558\uACE0 report.md/report.json + patches\uAE4C\uC9C0 \uC0DD\uC131").option("--input <path>", "input file path (default: ./aiopt-output/usage.jsonl)", DEFAULT_INPUT).option("--out <dir>", "output dir (default: ./aiopt-output)", DEFAULT_OUTPUT_DIR).option("--json", "print machine-readable JSON to stdout").action(async (opts) => {
   const inputPath = String(opts.input);
   const outDir = String(opts.out);
-  if (!import_fs16.default.existsSync(inputPath)) {
+  if (!import_fs11.default.existsSync(inputPath)) {
     console.error(`Input not found: ${inputPath}`);
     process.exit(1);
   }
@@ -2633,10 +1762,10 @@ program.command("scan").description("\uC785\uB825 \uB85C\uADF8(JSONL/CSV)\uB97C 
       outDir,
       input: inputPath,
       report: {
-        report_md: import_path17.default.join(outDir, "report.md"),
-        report_json: import_path17.default.join(outDir, "report.json"),
-        cost_policy_json: import_path17.default.join(outDir, "cost-policy.json"),
-        sarif: import_path17.default.join(outDir, "aiopt.sarif")
+        report_md: import_path12.default.join(outDir, "report.md"),
+        report_json: import_path12.default.join(outDir, "report.json"),
+        cost_policy_json: import_path12.default.join(outDir, "cost-policy.json"),
+        sarif: import_path12.default.join(outDir, "aiopt.sarif")
       },
       summary: {
         total_cost_usd: analysis.total_cost,
@@ -2652,7 +1781,7 @@ program.command("scan").description("\uC785\uB825 \uB85C\uADF8(JSONL/CSV)\uB97C 
     const tag = f.status === "no-issue" ? "(no issue detected)" : `($${Math.round(f.impact_usd * 100) / 100})`;
     console.log(`${i + 1}) ${f.title} ${tag}`);
   });
-  console.log(`Report: ${import_path17.default.join(outDir, "report.md")}`);
+  console.log(`Report: ${import_path12.default.join(outDir, "report.md")}`);
 });
 program.command("policy").description("\uB9C8\uC9C0\uB9C9 scan \uACB0\uACFC \uAE30\uBC18\uC73C\uB85C cost-policy.json\uB9CC \uC7AC\uC0DD\uC131 (MVP: scan\uACFC \uB3D9\uC77C \uB85C\uC9C1)").option("--input <path>", "input file path (default: ./aiopt-input/usage.jsonl)", DEFAULT_INPUT).option("--out <dir>", "output dir (default: ./aiopt-output)", DEFAULT_OUTPUT_DIR).action((opts) => {
   const inputPath = String(opts.input);
@@ -2662,7 +1791,7 @@ program.command("policy").description("\uB9C8\uC9C0\uB9C9 scan \uACB0\uACFC \uAE
   const { policy } = analyze(rt, events);
   policy.generated_from.input = inputPath;
   ensureDir(outDir);
-  import_fs16.default.writeFileSync(import_path17.default.join(outDir, "cost-policy.json"), JSON.stringify(policy, null, 2));
+  import_fs11.default.writeFileSync(import_path12.default.join(outDir, "cost-policy.json"), JSON.stringify(policy, null, 2));
   console.log(`OK: ${outDir}/cost-policy.json`);
 });
 program.command("install").description("Install AIOpt guardrails: create aiopt/ + policies + usage.jsonl").option("--force", "overwrite existing files").option("--seed-sample", "seed 1 sample line into aiopt-output/usage.jsonl").action(async (opts) => {
@@ -2702,7 +1831,7 @@ licenseCmd.command("verify").option("--path <path>", "license.json path (default
   const { DEFAULT_PUBLIC_KEY_PEM: DEFAULT_PUBLIC_KEY_PEM2, defaultLicensePath: defaultLicensePath2, readLicenseFile: readLicenseFile2, verifyLicenseKey: verifyLicenseKey2 } = await Promise.resolve().then(() => (init_license(), license_exports));
   const p = opts.path ? String(opts.path) : defaultLicensePath2(process.cwd());
   const pub = process.env.AIOPT_LICENSE_PUBKEY || DEFAULT_PUBLIC_KEY_PEM2;
-  if (!import_fs16.default.existsSync(p)) {
+  if (!import_fs11.default.existsSync(p)) {
     console.error(`FAIL: license file not found: ${p}`);
     process.exit(3);
   }
@@ -2719,7 +1848,7 @@ licenseCmd.command("status").option("--path <path>", "license.json path (default
   const { DEFAULT_PUBLIC_KEY_PEM: DEFAULT_PUBLIC_KEY_PEM2, defaultLicensePath: defaultLicensePath2, readLicenseFile: readLicenseFile2, verifyLicenseKey: verifyLicenseKey2 } = await Promise.resolve().then(() => (init_license(), license_exports));
   const p = opts.path ? String(opts.path) : defaultLicensePath2(process.cwd());
   const pub = process.env.AIOPT_LICENSE_PUBKEY || DEFAULT_PUBLIC_KEY_PEM2;
-  if (!import_fs16.default.existsSync(p)) {
+  if (!import_fs11.default.existsSync(p)) {
     console.log("NO_LICENSE");
     process.exit(2);
   }
@@ -2741,13 +1870,13 @@ program.command("gate").description("Merge gate (CI-friendly): fail (exit 1) whe
   let finalOutDir = outDir;
   if (outDir === defaultOut) {
     try {
-      const os4 = require("os");
-      finalOutDir = import_path17.default.join(os4.homedir(), ".aiopt", "aiopt-output");
+      const os3 = require("os");
+      finalOutDir = import_path12.default.join(os3.homedir(), ".aiopt", "aiopt-output");
     } catch {
       finalOutDir = outDir;
     }
   }
-  if (!import_fs16.default.existsSync(inputPath)) {
+  if (!import_fs11.default.existsSync(inputPath)) {
     if (opts.json) {
       console.log(JSON.stringify({
         ok: false,
@@ -2760,7 +1889,7 @@ program.command("gate").description("Merge gate (CI-friendly): fail (exit 1) whe
     } else {
       console.error(`FAIL: input not found: ${preferredInput}`);
       console.error(`Tried: ${resolved.tried.join(", ")}`);
-      console.error("Hint: run `aiopt dashboard` first (auto-collects OpenClaw usage)");
+      console.error("Hint: run `aiopt scan --input <usage.jsonl>` (or pass --input <usage.jsonl>)");
     }
     process.exit(1);
   }
@@ -2778,9 +1907,9 @@ program.command("gate").description("Merge gate (CI-friendly): fail (exit 1) whe
       violations: r.violations,
       top3: r.top3,
       artifacts: {
-        report_md: import_path17.default.join(finalOutDir, "report.md"),
-        sarif: import_path17.default.join(finalOutDir, "aiopt.sarif"),
-        patches_dir: import_path17.default.join(finalOutDir, "patches")
+        report_md: import_path12.default.join(finalOutDir, "report.md"),
+        sarif: import_path12.default.join(finalOutDir, "aiopt.sarif"),
+        patches_dir: import_path12.default.join(finalOutDir, "patches")
       }
     };
     console.log(JSON.stringify(payload, null, 2));
@@ -2830,11 +1959,11 @@ program.command("guard").description("Pre-deploy guardrail: compare baseline usa
     console.error("FAIL: diff mode requires both --baseline and --candidate");
     process.exit(3);
   }
-  if (!import_fs16.default.existsSync(baselinePath)) {
+  if (!import_fs11.default.existsSync(baselinePath)) {
     console.error(`FAIL: baseline not found: ${baselinePath}`);
     process.exit(3);
   }
-  if (candidatePath && !import_fs16.default.existsSync(candidatePath)) {
+  if (candidatePath && !import_fs11.default.existsSync(candidatePath)) {
     console.error(`FAIL: candidate not found: ${candidatePath}`);
     process.exit(3);
   }
@@ -2862,10 +1991,10 @@ program.command("guard").description("Pre-deploy guardrail: compare baseline usa
       baseline: baselinePath,
       candidate: candidatePath,
       artifacts: {
-        outDir: import_path17.default.resolve(DEFAULT_OUTPUT_DIR),
-        guard_last_txt: import_path17.default.join(import_path17.default.resolve(DEFAULT_OUTPUT_DIR), "guard-last.txt"),
-        guard_last_json: import_path17.default.join(import_path17.default.resolve(DEFAULT_OUTPUT_DIR), "guard-last.json"),
-        guard_history_jsonl: import_path17.default.join(import_path17.default.resolve(DEFAULT_OUTPUT_DIR), "guard-history.jsonl")
+        outDir: import_path12.default.resolve(DEFAULT_OUTPUT_DIR),
+        guard_last_txt: import_path12.default.join(import_path12.default.resolve(DEFAULT_OUTPUT_DIR), "guard-last.txt"),
+        guard_last_json: import_path12.default.join(import_path12.default.resolve(DEFAULT_OUTPUT_DIR), "guard-last.json"),
+        guard_history_jsonl: import_path12.default.join(import_path12.default.resolve(DEFAULT_OUTPUT_DIR), "guard-history.jsonl")
       }
     };
     console.log(JSON.stringify(payload, null, 2));
@@ -2873,72 +2002,16 @@ program.command("guard").description("Pre-deploy guardrail: compare baseline usa
     console.log(r.message);
   }
   try {
-    const outDir = import_path17.default.resolve(DEFAULT_OUTPUT_DIR);
-    import_fs16.default.mkdirSync(outDir, { recursive: true });
+    const outDir = import_path12.default.resolve(DEFAULT_OUTPUT_DIR);
+    import_fs11.default.mkdirSync(outDir, { recursive: true });
     const ts = (/* @__PURE__ */ new Date()).toISOString();
-    import_fs16.default.writeFileSync(import_path17.default.join(outDir, "guard-last.txt"), r.message);
-    import_fs16.default.writeFileSync(import_path17.default.join(outDir, "guard-last.json"), JSON.stringify({ ts, exitCode: r.exitCode }, null, 2));
+    import_fs11.default.writeFileSync(import_path12.default.join(outDir, "guard-last.txt"), r.message);
+    import_fs11.default.writeFileSync(import_path12.default.join(outDir, "guard-last.json"), JSON.stringify({ ts, exitCode: r.exitCode }, null, 2));
     const histLine = JSON.stringify({ ts, exitCode: r.exitCode, mode: candidateEvents ? "diff" : "transform", baseline: baselinePath, candidate: candidatePath }) + "\n";
-    import_fs16.default.appendFileSync(import_path17.default.join(outDir, "guard-history.jsonl"), histLine);
+    import_fs11.default.appendFileSync(import_path12.default.join(outDir, "guard-history.jsonl"), histLine);
   } catch {
   }
   process.exit(r.exitCode);
-});
-program.command("dashboard").description("Local dashboard (localhost only): view usage + scan + guard (auto-collects OpenClaw usage)").option("--port <n>", "port (default: 3010)", (v) => Number(v), 3010).option("--dir <path>", "base directory (default: ~/.aiopt). Use this to pin a consistent data source.").option("--auto", "auto-detect by searching parents (and one-level children) for aiopt-output (use only if you really want project-local)").action(async (opts) => {
-  const { startDashboard: startDashboard2 } = await Promise.resolve().then(() => (init_dashboard(), dashboard_exports));
-  const os4 = await import("os");
-  const defaultBase = require("path").join(os4.homedir(), ".aiopt");
-  const base = opts.dir ? String(opts.dir) : defaultBase;
-  if (opts.auto && !opts.dir) {
-    const { findAioptOutputDir: findAioptOutputDir2 } = await Promise.resolve().then(() => (init_find_output(), find_output_exports));
-    const found = findAioptOutputDir2(process.cwd());
-    await startDashboard2(found.cwd, { port: Number(opts.port || 3010) });
-    return;
-  }
-  await startDashboard2(base, { port: Number(opts.port || 3010) });
-});
-program.command("quickstart").description("1-minute demo: generate sample usage, run scan+guard, and print dashboard URL").option("--demo", "run demo workflow (writes to ./aiopt-output)").option("--port <n>", "dashboard port (default: 3010)", (v) => Number(v), 3010).option("--budget-monthly <usd>", "optional budget gate for the demo guard", (v) => Number(v)).option("--serve", "start the local dashboard after generating demo outputs").option("--open", "best-effort open browser to the dashboard URL").action(async (opts) => {
-  if (!opts.demo) {
-    console.error("FAIL: quickstart requires --demo");
-    process.exit(3);
-  }
-  const port = Number(opts.port || 3010);
-  const { runQuickstart: runQuickstart2 } = await Promise.resolve().then(() => (init_quickstart(), quickstart_exports));
-  const r = runQuickstart2(process.cwd(), { port, budgetMonthlyUsd: opts.budgetMonthly });
-  console.log("OK: demo usage written:", r.usagePath);
-  console.log("--- guard ---");
-  console.log(r.guard.message);
-  try {
-    const fs17 = await import("fs");
-    const path18 = await import("path");
-    fs17.mkdirSync(r.outDir, { recursive: true });
-    const ts = (/* @__PURE__ */ new Date()).toISOString();
-    fs17.writeFileSync(path18.join(r.outDir, "guard-last.txt"), r.guard.message);
-    fs17.writeFileSync(path18.join(r.outDir, "guard-last.json"), JSON.stringify({ ts, exitCode: r.guard.exitCode }, null, 2));
-    const histLine = JSON.stringify({ ts, exitCode: r.guard.exitCode, mode: "quickstart", baseline: r.usagePath, candidate: null }) + "\n";
-    fs17.appendFileSync(path18.join(r.outDir, "guard-history.jsonl"), histLine);
-  } catch {
-  }
-  console.log("--- next ---");
-  console.log(`Open: http://127.0.0.1:${port}/`);
-  if (opts.serve) {
-    const { startDashboard: startDashboard2 } = await Promise.resolve().then(() => (init_dashboard(), dashboard_exports));
-    if (opts.open) {
-      try {
-        const { execSync: execSync2 } = await import("child_process");
-        const url = `http://127.0.0.1:${port}/`;
-        if (process.platform === "darwin") execSync2(`open "${url}"`);
-        else if (process.platform === "win32") execSync2(`cmd.exe /c start "" "${url}"`);
-        else execSync2(`xdg-open "${url}"`);
-      } catch {
-      }
-    }
-    console.log("Serving dashboard. Press CTRL+C to stop.");
-    await startDashboard2(process.cwd(), { port });
-    return;
-  }
-  console.log(`Run: npx aiopt dashboard --port ${port}`);
-  process.exit(r.guard.exitCode);
 });
 program.parse(process.argv);
 //# sourceMappingURL=cli.js.map

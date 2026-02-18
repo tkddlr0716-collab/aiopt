@@ -259,7 +259,7 @@ program
       } else {
         console.error(`FAIL: input not found: ${preferredInput}`);
         console.error(`Tried: ${resolved.tried.join(', ')}`);
-        console.error('Hint: run `aiopt dashboard` first (auto-collects OpenClaw usage)');
+        console.error('Hint: run `aiopt scan --input <usage.jsonl>` (or pass --input <usage.jsonl>)');
       }
       process.exit(1);
     }
@@ -423,86 +423,6 @@ program
     }
 
     process.exit(r.exitCode);
-  });
-
-// Local-only dashboard (no auth; binds to 127.0.0.1)
-program
-  .command('dashboard')
-  .description('Local dashboard (localhost only): view usage + scan + guard (auto-collects OpenClaw usage)')
-  .option('--port <n>', 'port (default: 3010)', (v) => Number(v), 3010)
-  .option('--dir <path>', 'base directory (default: ~/.aiopt). Use this to pin a consistent data source.')
-  .option('--auto', 'auto-detect by searching parents (and one-level children) for aiopt-output (use only if you really want project-local)')
-  .action(async (opts) => {
-    const { startDashboard } = await import('./dashboard');
-    const os = await import('os');
-    const defaultBase = require('path').join(os.homedir(), '.aiopt');
-
-    const base = opts.dir ? String(opts.dir) : defaultBase;
-
-    if (opts.auto && !opts.dir) {
-      // Auto mode keeps previous behavior, but is opt-in to avoid confusing multi-source results.
-      const { findAioptOutputDir } = await import('./find-output');
-      const found = findAioptOutputDir(process.cwd());
-      await startDashboard(found.cwd, { port: Number(opts.port || 3010) });
-      return;
-    }
-
-    await startDashboard(base, { port: Number(opts.port || 3010) });
-  });
-
-program
-  .command('quickstart')
-  .description('1-minute demo: generate sample usage, run scan+guard, and print dashboard URL')
-  .option('--demo', 'run demo workflow (writes to ./aiopt-output)')
-  .option('--port <n>', 'dashboard port (default: 3010)', (v) => Number(v), 3010)
-  .option('--budget-monthly <usd>', 'optional budget gate for the demo guard', (v) => Number(v))
-  .option('--serve', 'start the local dashboard after generating demo outputs')
-  .option('--open', 'best-effort open browser to the dashboard URL')
-  .action(async (opts) => {
-    if (!opts.demo) {
-      console.error('FAIL: quickstart requires --demo');
-      process.exit(3);
-    }
-    const port = Number(opts.port || 3010);
-    const { runQuickstart } = await import('./quickstart');
-    const r = runQuickstart(process.cwd(), { port, budgetMonthlyUsd: opts.budgetMonthly });
-    console.log('OK: demo usage written:', r.usagePath);
-    console.log('--- guard ---');
-    console.log(r.guard.message);
-
-    // persist guard-last + append guard history for dashboard
-    try {
-      const fs = await import('fs');
-      const path = await import('path');
-      fs.mkdirSync(r.outDir, { recursive: true });
-      const ts = new Date().toISOString();
-      fs.writeFileSync(path.join(r.outDir, 'guard-last.txt'), r.guard.message);
-      fs.writeFileSync(path.join(r.outDir, 'guard-last.json'), JSON.stringify({ ts, exitCode: r.guard.exitCode }, null, 2));
-      const histLine = JSON.stringify({ ts, exitCode: r.guard.exitCode, mode: 'quickstart', baseline: r.usagePath, candidate: null }) + '\n';
-      fs.appendFileSync(path.join(r.outDir, 'guard-history.jsonl'), histLine);
-    } catch {}
-
-    console.log('--- next ---');
-    console.log(`Open: http://127.0.0.1:${port}/`);
-
-    if (opts.serve) {
-      const { startDashboard } = await import('./dashboard');
-      if (opts.open) {
-        try {
-          const { execSync } = await import('child_process');
-          const url = `http://127.0.0.1:${port}/`;
-          if (process.platform === 'darwin') execSync(`open "${url}"`);
-          else if (process.platform === 'win32') execSync(`cmd.exe /c start "" "${url}"`);
-          else execSync(`xdg-open "${url}"`);
-        } catch {}
-      }
-      console.log('Serving dashboard. Press CTRL+C to stop.');
-      await startDashboard(process.cwd(), { port });
-      return;
-    }
-
-    console.log(`Run: npx aiopt dashboard --port ${port}`);
-    process.exit(r.guard.exitCode);
   });
 
 program.parse(process.argv);
