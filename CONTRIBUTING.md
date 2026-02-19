@@ -12,6 +12,9 @@ node dist/cli.js scan
 # fast checks (unit-ish)
 npm test
 
+# type-only check (also included in npm test)
+npm run typecheck
+
 # include a real install+run smoke test in a temp dir
 npm run test:all
 ```

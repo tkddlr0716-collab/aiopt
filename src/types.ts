@@ -9,6 +9,9 @@ export type UsageEvent = {
   status: string;
   billed_cost?: number;
 
+  // Some sources nest extra fields under meta (e.g. OpenClaw session logs)
+  meta?: Record<string, any>;
+
   // wrapper usage schema (optional)
   trace_id?: string;
   request_id?: string;

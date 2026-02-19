@@ -241,7 +241,7 @@ export function runGuard(rt: RateTable, input: GuardInput): GuardResult {
       const bTop = base.analysis.by_model_top?.[0]?.key;
       const cTop = cand.analysis.by_model_top?.[0]?.key;
       if (bTop && cTop && bTop !== cTop) out.push('model mix changed');
-      if ((cand.savings?.retry_waste_usd || 0) > (base.savings?.retry_waste_usd || 0)) out.push('retry waste increased');
+      if ((cand.savings?.retry_waste || 0) > (base.savings?.retry_waste || 0)) out.push('retry waste increased');
     }
 
     // budget
