@@ -643,8 +643,9 @@ var require_package = __commonJS({
         "test:guard": "npm run build --silent && node scripts/test-guard.js",
         "test:license": "npm run build --silent && node scripts/test-license.js",
         "test:landing": "node scripts/test-landing.js",
+        typecheck: "tsc -p tsconfig.json --noEmit",
         "task:open": "node scripts/tasktracker-open.js",
-        test: "npm run test:guard && npm run test:license && npm run test:landing",
+        test: "npm run test:guard && npm run test:license && npm run test:landing && npm run typecheck",
         "test:all": "npm run test && npm run test:npx"
       },
       dependencies: {
@@ -1579,7 +1580,7 @@ function runGuard(rt, input) {
       const bTop = base.analysis.by_model_top?.[0]?.key;
       const cTop = cand.analysis.by_model_top?.[0]?.key;
       if (bTop && cTop && bTop !== cTop) out.push("model mix changed");
-      if ((cand.savings?.retry_waste_usd || 0) > (base.savings?.retry_waste_usd || 0)) out.push("retry waste increased");
+      if ((cand.savings?.retry_waste || 0) > (base.savings?.retry_waste || 0)) out.push("retry waste increased");
     }
     if (budget && Number.isFinite(budget) && budget > 0) out.push(`budget gate: $${round23(budget)}/mo`);
     return out.slice(0, 3);
