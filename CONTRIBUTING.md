@@ -8,6 +8,12 @@ npm i
 npm run build
 node dist/cli.js init
 node dist/cli.js scan
+
+# fast checks (unit-ish)
+npm test
+
+# include a real install+run smoke test in a temp dir
+npm run test:all
 ```
 
 ## TaskTracker (local)
