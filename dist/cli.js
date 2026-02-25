@@ -645,6 +645,7 @@ var require_package = __commonJS({
         "test:landing": "node scripts/test-landing.js",
         typecheck: "tsc -p tsconfig.json --noEmit",
         "task:open": "node scripts/tasktracker-open.js",
+        "task:promote-done": "node scripts/tasktracker-promote-done.js",
         test: "npm run test:guard && npm run test:license && npm run test:landing && npm run typecheck",
         "test:all": "npm run test && npm run test:npx"
       },
